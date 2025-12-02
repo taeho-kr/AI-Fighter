@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(start \"\" \"C:\\Users\\tae_h\\Desktop\\dev-personal\\new\\index.html\")",
+      "Bash(npm create threlte@latest . -- --template=default --svelte5 --typescript --install)",
+      "Bash(npm init:*)",
+      "Bash(npm install:*)",
+      "Bash(npm run dev:*)",
+      "Bash(start \"\" \"http://localhost:5174\")",
+      "Bash(dir \"C:\\Users\\tae_h\\Desktop\\dev-personal\\new\" /b)",
+      "Bash(npm view:*)",
+      "Bash(dir:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
