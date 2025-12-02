@@ -1,4 +1,5 @@
 import { writable, derived } from 'svelte/store';
+import { resetDQNAgent, type AIAction } from '$lib/ai/DQN';
 
 // 게임 상태 타입
 export type GameState = 'menu' | 'playing' | 'paused' | 'dead' | 'victory';
@@ -57,6 +58,27 @@ export const aiLearningData = writable({
 	dodgedAttacks: {
 		light: 0,
 		heavy: 0
+	},
+	// 움직임 패턴
+	movementPatterns: {
+		// 이동 방향 빈도
+		directions: {
+			forward: 0,
+			backward: 0,
+			left: 0,
+			right: 0,
+			idle: 0
+		},
+		// 선호 거리 (가까이/중간/멀리)
+		preferredDistance: {
+			close: 0,   // 0-3
+			mid: 0,     // 3-6
+			far: 0      // 6+
+		},
+		// 접근/후퇴 경향
+		approachTendency: 0,  // 양수: 접근, 음수: 후퇴
+		// 측면 이동 경향
+		strafeTendency: 0     // 양수: 우측, 음수: 좌측
 	}
 });
 
@@ -86,13 +108,56 @@ export function recordAction(action: Omit<PlayerAction, 'timestamp'>) {
 	});
 }
 
-// 게임 리셋 함수
+// 움직임 기록 함수 (프레임마다 호출)
+export function recordMovement(
+	movementDir: { forward: boolean; backward: boolean; left: boolean; right: boolean },
+	distanceToEnemy: number,
+	deltaDistance: number  // 이전 프레임 대비 거리 변화
+) {
+	aiLearningData.update(data => {
+		const patterns = data.movementPatterns;
+
+		// 이동 방향 기록
+		if (movementDir.forward) patterns.directions.forward++;
+		if (movementDir.backward) patterns.directions.backward++;
+		if (movementDir.left) patterns.directions.left++;
+		if (movementDir.right) patterns.directions.right++;
+		if (!movementDir.forward && !movementDir.backward && !movementDir.left && !movementDir.right) {
+			patterns.directions.idle++;
+		}
+
+		// 선호 거리 기록
+		if (distanceToEnemy <= 3) {
+			patterns.preferredDistance.close++;
+		} else if (distanceToEnemy <= 6) {
+			patterns.preferredDistance.mid++;
+		} else {
+			patterns.preferredDistance.far++;
+		}
+
+		// 접근/후퇴 경향 (거리 변화량)
+		patterns.approachTendency += deltaDistance * -1;  // 가까워지면 양수
+
+		// 측면 이동 경향
+		if (movementDir.left) patterns.strafeTendency--;
+		if (movementDir.right) patterns.strafeTendency++;
+
+		return data;
+	});
+}
+
+// 게임 리셋 함수 (gameState는 변경하지 않음 - 호출하는 쪽에서 관리)
 export function resetGame() {
 	playerHealth.set(100);
 	playerStamina.set(100);
 	playerState.set('idle');
 	enemyHealth.set(100);
 	enemyState.set('idle');
+}
+
+// 게임 시작 함수
+export function startGame() {
+	resetGame();
 	gameState.set('playing');
 }
 
@@ -101,8 +166,52 @@ export function nextRound() {
 	currentRound.update(r => r + 1);
 	bossLevel.update(l => l + 1);
 	resetGame();
+	gameState.set('playing');
 }
 
 // 파생 스토어 - 플레이어 생존 여부
 export const isPlayerAlive = derived(playerHealth, $health => $health > 0);
 export const isEnemyAlive = derived(enemyHealth, $health => $health > 0);
+
+// DQN AI 통계 스토어
+export const aiStats = writable({
+	totalEpisodes: 0,
+	explorationRate: 0.5,
+	memorySize: 0,
+	averageReward: 0,
+	lastAction: '' as AIAction | '',
+	isLearning: false
+});
+
+// AI 학습 모드 토글
+export const aiLearningEnabled = writable(true);
+
+// AI 학습 데이터 초기화
+export async function resetAILearning() {
+	await resetDQNAgent();
+
+	aiStats.set({
+		totalEpisodes: 0,
+		explorationRate: 0.5,
+		memorySize: 0,
+		averageReward: 0,
+		lastAction: '',
+		isLearning: false
+	});
+
+	// 통계 기반 학습 데이터도 초기화
+	aiLearningData.set({
+		attackPatterns: { light_attack: 0, heavy_attack: 0 },
+		dodgeDirections: { forward: 0, backward: 0, left: 0, right: 0 },
+		defensiveActions: { guard: 0, parry: 0 },
+		attackTimings: [],
+		dodgedAttacks: { light: 0, heavy: 0 },
+		movementPatterns: {
+			directions: { forward: 0, backward: 0, left: 0, right: 0, idle: 0 },
+			preferredDistance: { close: 0, mid: 0, far: 0 },
+			approachTendency: 0,
+			strafeTendency: 0
+		}
+	});
+	playerActionHistory.set([]);
+}

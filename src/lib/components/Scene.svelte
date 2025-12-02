@@ -6,10 +6,8 @@
 	import PlayerCombat from './PlayerCombat.svelte';
 	import EnemyAI from './EnemyAI.svelte';
 	import CameraController from './CameraController.svelte';
-	import GameUI from './GameUI.svelte';
 	import {
-		gameState, playerHealth, enemyHealth, playerState,
-		resetGame, nextRound, enemyMaxHealth, bossLevel
+		gameState, playerHealth, enemyHealth, playerState, recordMovement
 	} from '$lib/stores/gameStore';
 	import { get } from 'svelte/store';
 
@@ -21,6 +19,15 @@
 	let playerPosition = $state(new THREE.Vector3(0, 2, 8));
 	let playerRotation = $state(0);
 	let enemyPosition = $state(new THREE.Vector3(0, 2, -8));
+	let cameraRotation = $state(0);
+
+	// 움직임 학습용
+	let lastDistance = $state(16);  // 초기 거리
+	let movementRecordTimer = $state(0);
+
+	// 공격 히트 추적 (공격당 한 번만 데미지 적용)
+	let hasHitThisAttack = $state(false);  // 현재 공격에서 히트했는지
+	let wasAttacking = $state(false);      // 이전 프레임에서 공격 중이었는지
 
 	// 플레이어 위치 업데이트 핸들러
 	function handlePlayerPositionUpdate(pos: THREE.Vector3) {
@@ -48,9 +55,11 @@
 		playerComponent.takeDamage(damage);
 
 		// 사망 체크
-		setTimeout(() => {
+		setTimeout(async () => {
 			if (get(playerHealth) <= 0) {
 				gameState.set('dead');
+				// AI 승리 - 학습 기록
+				await enemyComponent?.endRound(true);
 			}
 		}, 100);
 	}
@@ -60,7 +69,18 @@
 		if (!playerComponent || !enemyComponent) return;
 
 		const attackState = playerComponent.isInAttackState();
+
+		// 공격이 끝났으면 히트 플래그 리셋
+		if (!attackState.attacking && wasAttacking) {
+			hasHitThisAttack = false;
+		}
+		wasAttacking = attackState.attacking;
+
+		// 공격 중이 아니면 리턴
 		if (!attackState.attacking) return;
+
+		// 이미 이 공격으로 히트했으면 스킵
+		if (hasHitThisAttack) return;
 
 		const pPos = playerComponent.getPosition();
 		const ePos = enemyComponent.getPosition();
@@ -68,20 +88,26 @@
 
 		const distance = pPos.distanceTo(ePos);
 		if (distance <= 2.5) {
-			const damage = attackState.type === 'light' ? 12 : 25;
+			// 이 공격은 히트 처리 완료
+			hasHitThisAttack = true;
+
+			// 플레이어 데미지 (AI와 동일)
+			const damage = attackState.type === 'light' ? 10 : 25;
 			enemyComponent.takeDamage(damage);
 
 			// 적 사망 체크
-			setTimeout(() => {
+			setTimeout(async () => {
 				if (get(enemyHealth) <= 0) {
 					gameState.set('victory');
+					// AI 패배 - 학습 기록
+					await enemyComponent?.endRound(false);
 				}
 			}, 100);
 		}
 	}
 
-	// 적 위치 업데이트
-	useTask(() => {
+	// 적 위치 업데이트 및 움직임 학습
+	useTask((delta) => {
 		if (enemyComponent) {
 			const pos = enemyComponent.getPosition();
 			if (pos) {
@@ -92,26 +118,26 @@
 		// 공격 충돌 체크
 		if (get(gameState) === 'playing') {
 			checkPlayerAttack();
+
+			// 움직임 기록 (0.1초마다)
+			movementRecordTimer += delta;
+			if (movementRecordTimer >= 0.1 && playerComponent && enemyComponent) {
+				movementRecordTimer = 0;
+
+				const pPos = playerComponent.getPosition();
+				const ePos = enemyComponent.getPosition();
+				if (pPos && ePos) {
+					const currentDistance = pPos.distanceTo(ePos);
+					const deltaDistance = currentDistance - lastDistance;
+					const movementDir = playerComponent.getMovementDirection();
+
+					recordMovement(movementDir, currentDistance, deltaDistance);
+					lastDistance = currentDistance;
+				}
+			}
 		}
 	});
 
-	// 게임 재시작
-	function handleRestart() {
-		resetGame();
-		// 보스 체력도 레벨에 맞게 리셋
-		const level = get(bossLevel);
-		enemyMaxHealth.set(100 + (level - 1) * 20);
-		enemyHealth.set(100 + (level - 1) * 20);
-	}
-
-	// 다음 라운드
-	function handleNextRound() {
-		nextRound();
-		// 보스 체력 증가
-		const level = get(bossLevel);
-		enemyMaxHealth.set(100 + (level - 1) * 20);
-		enemyHealth.set(100 + (level - 1) * 20);
-	}
 </script>
 
 <World>
@@ -119,6 +145,7 @@
 	<CameraController
 		targetPosition={playerPosition}
 		targetRotation={playerRotation}
+		onCameraRotationUpdate={(rot) => cameraRotation = rot}
 	/>
 
 	<!-- 조명 -->
@@ -144,6 +171,7 @@
 		bind:this={playerComponent}
 		onPositionUpdate={handlePlayerPositionUpdate}
 		onRotationUpdate={handlePlayerRotationUpdate}
+		{cameraRotation}
 	/>
 
 	<!-- 적 AI -->
@@ -155,8 +183,3 @@
 	/>
 </World>
 
-<!-- UI (Three.js 외부) -->
-<GameUI
-	onRestart={handleRestart}
-	onNextRound={handleNextRound}
-/>

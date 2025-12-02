@@ -4,9 +4,16 @@
 	import type { RigidBody as RapierRigidBody } from '@dimforge/rapier3d-compat';
 	import * as THREE from 'three';
 	import {
-		enemyHealth, enemyState, aiLearningData, bossLevel, gameState
+		enemyHealth, enemyMaxHealth, enemyState, aiLearningData, bossLevel, gameState,
+		playerHealth, playerMaxHealth, playerStamina, playerMaxStamina,
+		aiStats, aiLearningEnabled
 	} from '$lib/stores/gameStore';
 	import { get } from 'svelte/store';
+	import { onMount } from 'svelte';
+	import {
+		getDQNAgent, stateToVector,
+		type AIAction, type DQNAgent
+	} from '$lib/ai/DQN';
 
 	// Props
 	let {
@@ -33,17 +40,30 @@
 	let predictedDodgeDirection = $state<'forward' | 'backward' | 'left' | 'right' | null>(null);
 	let predictedPlayerAction = $state<'attack' | 'guard' | 'parry' | 'dodge' | null>(null);
 
-	// 보스 스탯 (레벨에 따라 증가)
+	// DQN AI
+	let dqnAgent: DQNAgent | null = $state(null);
+	let currentDQNAction = $state<AIAction | null>(null);
+	let lastRecentAction = $state<string>('idle');
+	let pendingReward = $state<number>(0);
+	let lastDistance = $state<number>(10);
+
+	// DQN 초기화
+	onMount(async () => {
+		dqnAgent = await getDQNAgent();
+		updateAIStats();
+	});
+
+	// AI 스탯 (레벨에 따라 증가)
 	const baseStats = {
 		speed: 3,
 		attackRange: 2.5,
-		lightDamage: 15,
-		heavyDamage: 30,
+		lightDamage: 10,
+		heavyDamage: 25,
 		aggressiveness: 0.5, // 0-1, 공격 빈도
 		predictionAccuracy: 0.3 // 0-1, 예측 정확도
 	};
 
-	// 현재 스탯 (보스 레벨 반영)
+	// 현재 스탯 (AI 레벨 반영)
 	let currentStats = $derived({
 		speed: baseStats.speed + (get(bossLevel) - 1) * 0.5,
 		attackRange: baseStats.attackRange,
@@ -53,7 +73,22 @@
 		predictionAccuracy: Math.min(0.9, baseStats.predictionAccuracy + (get(bossLevel) - 1) * 0.15)
 	});
 
-	// 학습 데이터 분석
+	// AI 통계 업데이트
+	function updateAIStats() {
+		if (!dqnAgent) return;
+		const stats = dqnAgent.getStats();
+		aiStats.update(s => ({
+			...s,
+			totalEpisodes: stats.totalEpisodes,
+			explorationRate: stats.explorationRate,
+			memorySize: stats.memorySize,
+			averageReward: stats.averageReward,
+			lastAction: currentDQNAction || '',
+			isLearning: stats.isModelReady
+		}));
+	}
+
+	// 학습 데이터 분석 (예측용)
 	function analyzeLearningData() {
 		const data = get(aiLearningData);
 
@@ -80,6 +115,124 @@
 		}
 	}
 
+	// DQN 상태 벡터 생성
+	function getCurrentStateVector(distance: number): number[] {
+		const data = get(aiLearningData);
+		return stateToVector(
+			get(playerHealth),
+			get(playerMaxHealth),
+			get(playerStamina),
+			get(playerMaxStamina),
+			get(enemyHealth),
+			get(enemyMaxHealth),
+			distance,
+			lastRecentAction,
+			data.attackPatterns.light_attack,
+			data.attackPatterns.heavy_attack,
+			data.defensiveActions.guard,
+			data.defensiveActions.parry,
+			data.dodgeDirections.left,
+			data.dodgeDirections.right,
+			data.dodgeDirections.backward
+		);
+	}
+
+	// DQN 기반 행동 선택
+	function selectDQNAction(distance: number): AIAction {
+		if (!dqnAgent || !get(aiLearningEnabled)) {
+			// DQN 비활성화 시 기본 행동
+			return distance <= currentStats.attackRange ? 'light_attack' : 'chase';
+		}
+
+		const state = getCurrentStateVector(distance);
+		const action = dqnAgent.selectAction(state);
+		currentDQNAction = action;
+
+		updateAIStats();
+		return action;
+	}
+
+	// DQN 보상 기록 및 학습
+	async function recordRewardAndLearn(reward: number, distance: number, done: boolean = false) {
+		if (!dqnAgent || !get(aiLearningEnabled)) return;
+
+		const nextState = getCurrentStateVector(distance);
+		await dqnAgent.recordReward(reward, nextState, done);
+		updateAIStats();
+	}
+
+	// AI 행동을 실제 게임 액션으로 변환
+	function executeDQNAction(action: AIAction, distance: number) {
+		currentDQNAction = action;
+
+		// 플레이어 패턴 데이터
+		const data = get(aiLearningData);
+		const totalDefense = data.defensiveActions.guard + data.defensiveActions.parry;
+		const parryRatio = totalDefense > 0 ? data.defensiveActions.parry / totalDefense : 0;
+		const isParryPlayer = parryRatio > 0.3;
+
+		switch (action) {
+			case 'light_attack':
+				if (distance <= currentStats.attackRange && attackCooldown <= 0) {
+					performAttack('light');
+				} else {
+					currentState = 'chasing';
+				}
+				break;
+
+			case 'heavy_attack':
+				if (distance <= currentStats.attackRange && attackCooldown <= 0) {
+					performAttack('heavy');
+				} else {
+					currentState = 'chasing';
+				}
+				break;
+
+			case 'feint_attack':
+				if (distance <= currentStats.attackRange && attackCooldown <= 0) {
+					// 페인트: 패링 플레이어에게 효과적
+					// 짧은 대기 후 공격 (패링 윈도우 지나간 후)
+					currentState = 'predicting';
+					const feintDelay = isParryPlayer ? 500 : 350;  // 패링 플레이어에겐 더 긴 딜레이
+					setTimeout(() => {
+						if (attackCooldown <= 0) performAttack('light');
+					}, feintDelay);
+				}
+				break;
+
+			case 'guard_break':
+				if (distance <= currentStats.attackRange && attackCooldown <= 0) {
+					// 가드 브레이크: 강공격 + 추가 스턴
+					performAttack('heavy');
+				}
+				break;
+
+			case 'chase':
+				currentState = 'chasing';
+				enemyState.set('chasing');
+				break;
+
+			case 'retreat':
+				currentState = 'retreating';
+				break;
+
+			case 'wait':
+				// 대기: 패링 플레이어의 타이밍을 흐트러뜨림
+				currentState = 'idle';
+				enemyState.set('idle');
+				break;
+
+			case 'predict_dodge_left':
+			case 'predict_dodge_right':
+				if (distance <= currentStats.attackRange + 1 && attackCooldown <= 0) {
+					// 예측 방향으로 이동 후 공격
+					predictedDodgeDirection = action === 'predict_dodge_left' ? 'left' : 'right';
+					performAttack('light');
+				}
+				break;
+		}
+	}
+
 	// AI 의사결정
 	function makeDecision(distance: number, delta: number) {
 		if (isStunned) {
@@ -98,11 +251,31 @@
 		if (decisionTimer > 0) return;
 		decisionTimer = 0.3; // 0.3초마다 의사결정
 
-		// 학습 데이터 분석
+		// 학습 데이터 분석 (예측용)
 		analyzeLearningData();
 
-		const level = get(bossLevel);
+		// 보류된 보상이 있으면 학습 수행
+		if (pendingReward !== 0) {
+			recordRewardAndLearn(pendingReward, distance);
+			pendingReward = 0;
+		}
 
+		const useDQN = get(aiLearningEnabled) && dqnAgent !== null;
+
+		if (useDQN) {
+			// DQN 기반 의사결정
+			const action = selectDQNAction(distance);
+			executeDQNAction(action, distance);
+		} else {
+			// 기존 통계 기반 의사결정 (폴백)
+			legacyDecision(distance);
+		}
+
+		lastDistance = distance;
+	}
+
+	// 기존 통계 기반 의사결정 (폴백용)
+	function legacyDecision(distance: number) {
 		// 공격 범위 내
 		if (distance <= currentStats.attackRange) {
 			if (attackCooldown <= 0) {
@@ -113,9 +286,8 @@
 				if (predictedPlayerAction === 'guard' && Math.random() < currentStats.predictionAccuracy) {
 					performAttack('heavy');
 				}
-				// 플레이어가 패링을 자주 한다면 페인트 후 공격 (여기선 딜레이 공격)
+				// 플레이어가 패링을 자주 한다면 페인트 후 공격
 				else if (predictedPlayerAction === 'parry' && Math.random() < currentStats.predictionAccuracy) {
-					// 딜레이 후 약공격
 					setTimeout(() => performAttack('light'), 300);
 					currentState = 'predicting';
 				}
@@ -125,7 +297,6 @@
 					performAttack('light');
 				}
 			} else {
-				// 쿨다운 중 - 약간 물러나거나 대기
 				if (Math.random() < 0.3) {
 					currentState = 'retreating';
 				}
@@ -195,11 +366,58 @@
 		currentState = 'stunned';
 		enemyState.set('stunned');
 		attackType = null;
+
+		// DQN: 패링당함 = 큰 페널티
+		if (dqnAgent) {
+			pendingReward += dqnAgent.getReward('gotParried');
+		}
 	}
 
 	// 데미지 처리
 	export function takeDamage(amount: number) {
 		enemyHealth.update(h => Math.max(0, h - amount));
+
+		// DQN: 데미지 받음 = 페널티
+		if (dqnAgent) {
+			pendingReward += dqnAgent.getReward('gotHit');
+		}
+	}
+
+	// 공격 성공 알림 (외부에서 호출)
+	export function notifyHitPlayer() {
+		if (dqnAgent) {
+			pendingReward += dqnAgent.getReward('hitPlayer');
+		}
+	}
+
+	// 공격 실패 알림 (플레이어가 회피)
+	export function notifyPlayerDodged() {
+		if (dqnAgent) {
+			pendingReward += dqnAgent.getReward('playerDodged');
+		}
+	}
+
+	// 공격 빗나감 알림
+	export function notifyMissedAttack() {
+		if (dqnAgent) {
+			pendingReward += dqnAgent.getReward('missedAttack');
+		}
+	}
+
+	// 라운드 종료 처리 (승/패)
+	export async function endRound(won: boolean) {
+		if (dqnAgent) {
+			const reward = won ? dqnAgent.getReward('wonRound') : dqnAgent.getReward('lostRound');
+			await recordRewardAndLearn(reward, lastDistance, true);
+			dqnAgent.endEpisode();
+			await dqnAgent.save();
+			updateAIStats();
+		}
+	}
+
+	// 플레이어 행동 업데이트 (학습용)
+	export function updatePlayerAction(action: string) {
+		lastRecentAction = action;
 	}
 
 	export function getPosition(): THREE.Vector3 | null {
@@ -263,8 +481,8 @@
 	});
 </script>
 
-<RigidBody bind:rigidBody position={[0, 2, -8]} linearDamping={0.9} lockRotations>
-	<Collider shape="capsule" args={[0.6, 0.5]} mass={2} />
+<RigidBody bind:rigidBody position={[0, 1, -8]} linearDamping={5} angularDamping={5} lockRotations enabledRotations={[false, false, false]}>
+	<Collider shape="capsule" args={[0.6, 0.5]} mass={2} friction={1} restitution={0} />
 
 	<T.Group rotation.y={lookAngle}>
 		<!-- 몸체 -->

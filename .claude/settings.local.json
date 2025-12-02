@@ -9,7 +9,10 @@
       "Bash(start \"\" \"http://localhost:5174\")",
       "Bash(dir \"C:\\Users\\tae_h\\Desktop\\dev-personal\\new\" /b)",
       "Bash(npm view:*)",
-      "Bash(dir:*)"
+      "Bash(dir:*)",
+      "Bash(npm run check:*)",
+      "Bash(npm run build:*)",
+      "Bash(npx vite build:*)"
     ],
     "deny": [],
     "ask": []

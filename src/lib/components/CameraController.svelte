@@ -4,7 +4,11 @@
 	import { cameraMode } from '$lib/stores/gameStore';
 
 	// Props
-	let { targetPosition = new THREE.Vector3(), targetRotation = 0 } = $props();
+	let {
+		targetPosition = new THREE.Vector3(),
+		targetRotation = 0,
+		onCameraRotationUpdate = (rot: number) => {}
+	} = $props();
 
 	let camera: THREE.PerspectiveCamera;
 	let currentPosition = new THREE.Vector3(0, 5, 15);
@@ -25,6 +29,7 @@
 		if (isPointerLocked) {
 			mouseX += e.movementX * 0.002;
 			mouseY = Math.max(-0.5, Math.min(0.8, mouseY + e.movementY * 0.002));
+			onCameraRotationUpdate(mouseX);
 		}
 	}
 
@@ -78,7 +83,6 @@
 
 <svelte:window
 	onmousemove={handleMouseMove}
-	onclick={handleClick}
 />
 <svelte:document onpointerlockchange={handlePointerLockChange} />
 
