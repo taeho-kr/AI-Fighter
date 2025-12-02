@@ -14,6 +14,7 @@
 		getDQNAgent, stateToVector,
 		type AIAction, type DQNAgent
 	} from '$lib/ai/DQN';
+	import HumanoidModel from './HumanoidModel.svelte';
 
 	// Props
 	let {
@@ -46,6 +47,13 @@
 	let lastRecentAction = $state<string>('idle');
 	let pendingReward = $state<number>(0);
 	let lastDistance = $state<number>(10);
+
+	// 휴머노이드 모델용 상태
+	let animationTime = $state(0);
+	let walkCycle = $state(0);
+	let currentAnimState = $state<'idle' | 'walk' | 'run' | 'attack_light' | 'attack_heavy' | 'guard' | 'dodge' | 'stunned' | 'charging'>('idle');
+	let attackAnimProgress = $state(0);
+	let attackAnimStartTime = $state(0);
 
 	// DQN 초기화
 	onMount(async () => {
@@ -320,6 +328,10 @@
 		attackType = type;
 		enemyState.set('attacking');
 
+		// 애니메이션 시작
+		attackAnimStartTime = Date.now();
+		attackAnimProgress = 0;
+
 		const windupTime = type === 'light' ? 200 : 500;
 		const attackDuration = type === 'light' ? 300 : 600;
 		const cooldown = type === 'light' ? 0.8 : 1.5;
@@ -430,8 +442,26 @@
 		return { attacking: currentState === 'attacking', type: attackType };
 	}
 
+	// 위치 초기화 (새 라운드 시작 시)
+	export function resetPosition() {
+		if (!rigidBody) return;
+		rigidBody.setTranslation({ x: 0, y: 1, z: -8 }, true);
+		rigidBody.setLinvel({ x: 0, y: 0, z: 0 }, true);
+
+		// 상태 초기화
+		currentState = 'idle';
+		attackType = null;
+		isStunned = false;
+		stunTimer = 0;
+		attackCooldown = 0;
+		decisionTimer = 0;
+	}
+
 	useTask((delta) => {
 		if (!rigidBody || get(gameState) !== 'playing') return;
+
+		// 애니메이션 시간 업데이트
+		animationTime += delta;
 
 		const pos = rigidBody.translation();
 		const enemyPos = new THREE.Vector3(pos.x, pos.y, pos.z);
@@ -440,6 +470,27 @@
 
 		// 의사결정
 		makeDecision(distance, delta);
+
+		// 휴머노이드 애니메이션 상태 업데이트
+		if (isStunned) {
+			currentAnimState = 'stunned';
+		} else if (currentState === 'attacking') {
+			currentAnimState = attackType === 'heavy' ? 'attack_heavy' : 'attack_light';
+			// 공격 애니메이션 진행도 업데이트
+			if (attackAnimStartTime > 0) {
+				const duration = attackType === 'light' ? 500 : 1100;
+				attackAnimProgress = Math.min(1, (Date.now() - attackAnimStartTime) / duration);
+			}
+		} else if (currentState === 'chasing') {
+			currentAnimState = 'run';
+			walkCycle += delta * 10; // 빠른 걷기
+		} else if (currentState === 'retreating') {
+			currentAnimState = 'walk';
+			walkCycle += delta * 6;
+		} else {
+			currentAnimState = 'idle';
+			attackAnimProgress = 0;
+		}
 
 		// 이동
 		const velocity = rigidBody.linvel();
@@ -482,66 +533,83 @@
 </script>
 
 <RigidBody bind:rigidBody position={[0, 1, -8]} linearDamping={5} angularDamping={5} lockRotations enabledRotations={[false, false, false]}>
-	<Collider shape="capsule" args={[0.6, 0.5]} mass={2} friction={1} restitution={0} />
+	<Collider shape="capsule" args={[0.5, 0.4]} mass={1} friction={1} restitution={0} />
 
 	<T.Group rotation.y={lookAngle}>
-		<!-- 몸체 -->
-		<T.Mesh castShadow position.y={0.6}>
-			<T.CapsuleGeometry args={[0.5, 1.2, 8, 16]} />
-			<T.MeshStandardMaterial
-				color={isStunned ? '#888888' : currentState === 'attacking' ? '#ff2222' : '#e94560'}
-				emissive={currentState === 'attacking' ? '#ff0000' : '#000000'}
-				emissiveIntensity={currentState === 'attacking' ? 0.5 : 0}
-			/>
-		</T.Mesh>
+		<!-- 휴머노이드 모델 (플레이어와 동일, 색상만 다름) -->
+		<HumanoidModel
+			color={isStunned ? '#888888' : currentState === 'attacking' ? '#ff4444' : '#e94560'}
+			accentColor={isStunned ? '#666666' : '#b83050'}
+			height={1.8}
+			animationState={currentAnimState}
+			animationProgress={attackAnimProgress}
+			walkCycle={walkCycle}
+			hasWeapon={true}
+			hasShield={true}
+			weaponType="sword"
+			isHit={false}
+			isStunned={isStunned}
+			time={animationTime}
+		/>
 
-		<!-- 머리 (보스) -->
-		<T.Mesh castShadow position.y={1.7}>
-			<T.SphereGeometry args={[0.35, 16, 16]} />
-			<T.MeshStandardMaterial color="#e94560" />
-		</T.Mesh>
+		<!-- 공격 시 이펙트 -->
+		{#if currentState === 'attacking'}
+			<T.PointLight position={[0.5, 1, 0.5]} intensity={8} color="#ff4400" distance={2.5} />
+		{/if}
 
-		<!-- 뿔 (보스 특징) -->
-		<T.Mesh castShadow position={[0.2, 2, 0]} rotation.z={-0.3}>
-			<T.ConeGeometry args={[0.1, 0.4, 8]} />
-			<T.MeshStandardMaterial color="#1a1a2e" />
-		</T.Mesh>
-		<T.Mesh castShadow position={[-0.2, 2, 0]} rotation.z={0.3}>
-			<T.ConeGeometry args={[0.1, 0.4, 8]} />
-			<T.MeshStandardMaterial color="#1a1a2e" />
-		</T.Mesh>
-
-		<!-- 무기 (양손 도끼) -->
-		<T.Group position={[0.6, 0.5, 0]} rotation.z={attackType ? -1 : -0.5}>
-			<!-- 도끼 날 -->
-			<T.Mesh castShadow position={[0, 0.8, 0]}>
-				<T.BoxGeometry args={[0.4, 0.6, 0.1]} />
-				<T.MeshStandardMaterial
-					color={attackType === 'heavy' ? '#ff4400' : '#666666'}
-					emissive={attackType ? '#ff2200' : '#000000'}
-					emissiveIntensity={attackType ? 0.8 : 0}
+		<!-- 레벨 표시 (레벨 2 이상일 때 오라) -->
+		{#if get(bossLevel) > 1}
+			<T.PointLight position={[0, 2, 0]} intensity={get(bossLevel) * 3} color="#e94560" distance={4} />
+			<T.Mesh position={[0, 0.9, 0]}>
+				<T.SphereGeometry args={[0.7 + get(bossLevel) * 0.05, 16, 16]} />
+				<T.MeshBasicMaterial
+					color="#e94560"
+					transparent
+					opacity={0.08}
 				/>
 			</T.Mesh>
-			<!-- 손잡이 -->
-			<T.Mesh position={[0, 0.2, 0]}>
-				<T.CylinderGeometry args={[0.06, 0.06, 1, 8]} />
-				<T.MeshStandardMaterial color="#3d2914" />
-			</T.Mesh>
-		</T.Group>
+		{/if}
 
-		<!-- 눈 (발광) -->
-		<T.Mesh position={[0.1, 1.7, 0.3]}>
-			<T.SphereGeometry args={[0.06, 8, 8]} />
-			<T.MeshStandardMaterial color="#ffff00" emissive="#ffff00" emissiveIntensity={1} />
-		</T.Mesh>
-		<T.Mesh position={[-0.1, 1.7, 0.3]}>
-			<T.SphereGeometry args={[0.06, 8, 8]} />
-			<T.MeshStandardMaterial color="#ffff00" emissive="#ffff00" emissiveIntensity={1} />
-		</T.Mesh>
+		<!-- 스턴 이펙트 (머리 위 혼란 표시) -->
+		{#if isStunned}
+			<T.Group position={[0, 2.1, 0]}>
+				<!-- 회전하는 별들 -->
+				{#each [0, 1, 2, 3, 4, 5] as i}
+					<T.Group rotation.y={animationTime * 3 + i * Math.PI / 3}>
+						<T.Mesh
+							position={[0.35, Math.sin(animationTime * 4 + i) * 0.08, 0]}
+						>
+							<T.OctahedronGeometry args={[0.07]} />
+							<T.MeshBasicMaterial color={i % 2 === 0 ? '#ffff00' : '#ffaa00'} />
+						</T.Mesh>
+					</T.Group>
+				{/each}
 
-		<!-- 레벨 표시 (후광) -->
-		{#if get(bossLevel) > 1}
-			<T.PointLight position={[0, 2.5, 0]} intensity={get(bossLevel) * 5} color="#e94560" distance={5} />
+				<!-- 느낌표 표시 -->
+				<T.Group position={[0, 0.25, 0]}>
+					<T.Mesh rotation.z={Math.sin(animationTime * 6) * 0.2}>
+						<T.CylinderGeometry args={[0.035, 0.05, 0.2, 8]} />
+						<T.MeshBasicMaterial color="#ff4444" />
+					</T.Mesh>
+					<T.Mesh position={[0, -0.18, 0]}>
+						<T.SphereGeometry args={[0.04, 8, 8]} />
+						<T.MeshBasicMaterial color="#ff4444" />
+					</T.Mesh>
+				</T.Group>
+
+				<!-- 소용돌이 링 -->
+				<T.Mesh rotation.x={Math.PI / 2} rotation.z={animationTime * 5}>
+					<T.TorusGeometry args={[0.3, 0.015, 8, 32]} />
+					<T.MeshBasicMaterial color="#ffff88" transparent opacity={0.6} />
+				</T.Mesh>
+				<T.Mesh rotation.x={Math.PI / 2} rotation.z={-animationTime * 4}>
+					<T.TorusGeometry args={[0.4, 0.012, 8, 32]} />
+					<T.MeshBasicMaterial color="#ffaa44" transparent opacity={0.4} />
+				</T.Mesh>
+			</T.Group>
+
+			<!-- 스턴 상태 빛 -->
+			<T.PointLight position={[0, 2.2, 0]} intensity={3} color="#ffff00" distance={2.5} />
 		{/if}
 	</T.Group>
 </RigidBody>

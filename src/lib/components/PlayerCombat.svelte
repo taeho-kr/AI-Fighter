@@ -9,6 +9,7 @@
 	} from '$lib/stores/gameStore';
 	import { get } from 'svelte/store';
 	import { onMount } from 'svelte';
+	import HumanoidModel from './HumanoidModel.svelte';
 
 	// Props
 	let {
@@ -85,6 +86,17 @@
 	// 공격 진행도 (0~1)
 	let attackProgress = $state(0);
 	let attackStartTime = $state(0);
+
+	// 휴머노이드 모델용 상태
+	let animationTime = $state(0);
+	let walkCycle = $state(0);
+	let currentAnimState = $state<'idle' | 'walk' | 'run' | 'attack_light' | 'attack_heavy' | 'guard' | 'parry' | 'dodge' | 'stunned' | 'charging'>('idle');
+	let chargeIntensity = $state(0);
+	let parryAnimProgress = $state(0);
+	let parryAnimStartTime = $state(0);
+	let dodgeAnimProgress = $state(0);
+	let dodgeAnimStartTime = $state(0);
+	let currentDodgeDirection = $state<'forward' | 'backward' | 'left' | 'right'>('backward');
 
 	const speed = 6;
 	const dodgeSpeed = 15;
@@ -224,11 +236,17 @@
 		else if (keys.left) direction = 'left';
 		else if (keys.right) direction = 'right';
 
+		// 애니메이션 상태 설정
+		currentDodgeDirection = direction;
+		dodgeAnimStartTime = Date.now();
+		dodgeAnimProgress = 0;
+
 		recordAction({ type: 'dodge', direction });
 
 		setTimeout(() => {
 			isDodging = false;
 			playerState.set('idle');
+			dodgeAnimProgress = 0;
 		}, 400);
 
 		setTimeout(() => {
@@ -280,12 +298,15 @@
 	let lastStaminaRegen = Date.now();
 	let lastFrameTime = Date.now();
 
-	useTask(() => {
+	useTask((delta) => {
 		if (!rigidBody) return;
 
 		const now = Date.now();
 		const deltaMs = now - lastFrameTime;
 		lastFrameTime = now;
+
+		// 애니메이션 시간 업데이트
+		animationTime += delta;
 
 		// 공격 쿨다운 타이머 감소
 		if (attackCooldownTimer > 0) {
@@ -421,6 +442,43 @@
 		shieldRotationY += (targetShieldRotY - shieldRotationY) * lerpSpeed;
 		bodyTilt += (targetBodyTilt - bodyTilt) * lerpSpeed;
 
+		// 휴머노이드 애니메이션 상태 업데이트
+		const isMoving = keys.forward || keys.backward || keys.left || keys.right;
+		if (isMoving && !isAttacking && !isDodging && !isGuarding && !isParrying) {
+			walkCycle += delta * 8; // 걷기 사이클 진행
+			currentAnimState = 'walk';
+		}
+
+		// 패링 애니메이션 진행도 업데이트
+		if (isParrying && parryAnimStartTime > 0) {
+			parryAnimProgress = Math.min(1, (Date.now() - parryAnimStartTime) / 400);
+		}
+
+		// 회피 애니메이션 진행도 업데이트
+		if (isDodging && dodgeAnimStartTime > 0) {
+			dodgeAnimProgress = Math.min(1, (Date.now() - dodgeAnimStartTime) / 400);
+		}
+
+		if (isCharging) {
+			currentAnimState = 'charging';
+			chargeIntensity = Math.min((Date.now() - chargeStartTime) / HEAVY_ATTACK_THRESHOLD, 1);
+		} else if (isParrying) {
+			currentAnimState = 'parry';
+		} else if (isAttacking && attackType === 'light') {
+			currentAnimState = 'attack_light';
+		} else if (isAttacking && attackType === 'heavy') {
+			currentAnimState = 'attack_heavy';
+		} else if (isGuarding) {
+			currentAnimState = 'guard';
+		} else if (isDodging) {
+			currentAnimState = 'dodge';
+		} else if (!isMoving) {
+			currentAnimState = 'idle';
+			chargeIntensity = 0;
+			parryAnimProgress = 0;
+			dodgeAnimProgress = 0;
+		}
+
 		// 이펙트 업데이트
 		// 슬래시 트레일 페이드 아웃
 		if (slashTrailOpacity > 0) {
@@ -485,23 +543,25 @@
 	});
 
 	// 외부에서 데미지를 받을 수 있도록 export
-	// 반환값: 'hit' = 피격, 'blocked' = 가드, 'parried' = 패링 성공, 'dodged' = 회피
+	// 반환값: 'hit' = 피격, 'blocked' = 가드, 'parried' = 패링 성공 (스턴 1.5-2초), 'dodged' = 회피
 	export function takeDamage(amount: number): 'hit' | 'blocked' | 'parried' | 'dodged' {
 		if (isDodging) return 'dodged'; // 회피 중 무적
 
 		if (isGuarding) {
 			// 패링 윈도우가 활성화되어 있으면 패링 성공
 			if (parryWindowActive) {
-				// 패링 성공!
+				// 패링 성공! - 적에게 1.5~2초 스턴 (데미지 없음)
 				playerStamina.update(s => Math.max(0, s - staminaCosts.parry));
 				recordAction({ type: 'parry' });
 
-				// 패링 이펙트
+				// 패링 이펙트 및 애니메이션
 				isParrying = true;
 				parryFlashEffect = true;
+				parryAnimStartTime = Date.now();
+				parryAnimProgress = 0;
 				parryWindowActive = false;  // 패링 후 윈도우 비활성화
 				parryWindowTimer = 0;
-				setTimeout(() => { isParrying = false; }, 300);
+				setTimeout(() => { isParrying = false; }, 500);  // 패링 애니메이션 더 길게
 
 				return 'parried';
 			}
@@ -548,89 +608,52 @@
 			right: keys.right
 		};
 	}
+
+	// 위치 초기화 (새 라운드 시작 시)
+	export function resetPosition() {
+		if (!rigidBody) return;
+		rigidBody.setTranslation({ x: 0, y: 1, z: 8 }, true);
+		rigidBody.setLinvel({ x: 0, y: 0, z: 0 }, true);
+
+		// 상태 초기화
+		isAttacking = false;
+		attackType = null;
+		isGuarding = false;
+		isDodging = false;
+		isParrying = false;
+		isCharging = false;
+		attackCooldownTimer = 0;
+		playerRotation = 0;
+		currentAnimState = 'idle';
+	}
 </script>
 
 <RigidBody bind:rigidBody position={[0, 1, 8]} linearDamping={5} angularDamping={5} lockRotations enabledRotations={[false, false, false]}>
 	<Collider shape="capsule" args={[0.5, 0.4]} mass={1} friction={1} restitution={0} />
 
 	<T.Group bind:ref={playerMesh} rotation.y={playerRotation}>
-		<!-- 몸체 (기울기 적용) -->
-		<T.Group rotation.x={bodyTilt}>
-			<T.Mesh castShadow position.y={0.5}>
-				<T.CapsuleGeometry args={[0.4, 1, 8, 16]} />
-				<T.MeshStandardMaterial
-					color={isDodging ? '#00ff88' : isGuarding ? '#4488ff' : isParrying ? '#ffff00' : '#22c55e'}
-					emissive={isParrying ? '#ffff00' : '#000000'}
-					emissiveIntensity={isParrying ? 0.5 : 0}
-				/>
-			</T.Mesh>
-
-			<!-- 머리 -->
-			<T.Mesh castShadow position.y={1.4}>
-				<T.SphereGeometry args={[0.25, 16, 16]} />
-				<T.MeshStandardMaterial color="#22c55e" />
-			</T.Mesh>
-
-			<!-- 오른팔 + 무기 (검) -->
-			<T.Group position={[0.45, 0.8, 0]}>
-				<!-- 어깨 피벗 -->
-				<T.Group rotation.x={weaponRotationX} rotation.z={weaponRotationZ}>
-					<!-- 팔 -->
-					<T.Mesh castShadow position={[0.1, -0.2, 0]}>
-						<T.CapsuleGeometry args={[0.08, 0.3, 4, 8]} />
-						<T.MeshStandardMaterial color="#22c55e" />
-					</T.Mesh>
-
-					<!-- 검 -->
-					<T.Group position={[0.1, -0.4, 0]}>
-						<!-- 검날 -->
-						<T.Mesh castShadow position.y={-0.5}>
-							<T.BoxGeometry args={[0.08, 1.0, 0.03]} />
-							<T.MeshStandardMaterial
-								color={isCharging ? '#ff8800' : isAttacking ? (attackType === 'heavy' ? '#ff4444' : '#ffaa00') : '#aaaaaa'}
-								emissive={isCharging ? '#ff4400' : isAttacking ? '#ff4400' : '#000000'}
-								emissiveIntensity={isCharging ? 0.8 : isAttacking ? 0.6 : 0}
-								metalness={0.8}
-								roughness={0.2}
-							/>
-						</T.Mesh>
-						<!-- 검 가드 -->
-						<T.Mesh position.y={0.05}>
-							<T.BoxGeometry args={[0.25, 0.05, 0.1]} />
-							<T.MeshStandardMaterial color="#8B4513" metalness={0.5} />
-						</T.Mesh>
-						<!-- 손잡이 -->
-						<T.Mesh position.y={0.2}>
-							<T.CylinderGeometry args={[0.04, 0.04, 0.25, 8]} />
-							<T.MeshStandardMaterial color="#4a3728" />
-						</T.Mesh>
-					</T.Group>
-				</T.Group>
-			</T.Group>
-
-			<!-- 왼팔 + 방패 -->
-			<T.Group position={[-0.45, 0.8, 0]}>
-				<!-- 어깨 피벗 -->
-				<T.Group rotation.x={isGuarding || isParrying ? -0.3 : 0} rotation.y={shieldRotationY}>
-					<!-- 팔 -->
-					<T.Mesh castShadow position={[-0.1, -0.2, 0]}>
-						<T.CapsuleGeometry args={[0.08, 0.3, 4, 8]} />
-						<T.MeshStandardMaterial color="#22c55e" />
-					</T.Mesh>
-
-					<!-- 방패 -->
-					<T.Mesh castShadow position={[-0.15, -0.3, shieldPositionZ]}>
-						<T.BoxGeometry args={[0.08, 0.6, 0.5]} />
-						<T.MeshStandardMaterial
-							color={isParrying ? '#ffff44' : isGuarding ? '#4488ff' : '#666666'}
-							emissive={isParrying ? '#ffff00' : isGuarding ? '#2244aa' : '#000000'}
-							emissiveIntensity={isParrying ? 0.8 : isGuarding ? 0.3 : 0}
-							metalness={0.3}
-						/>
-					</T.Mesh>
-				</T.Group>
-			</T.Group>
-		</T.Group>
+		<!-- 휴머노이드 모델 -->
+		<HumanoidModel
+			color={isDodging ? '#00ff88' : isGuarding ? '#4488ff' : isParrying ? '#ffff00' : '#22c55e'}
+			accentColor={isDodging ? '#00cc66' : isGuarding ? '#3366cc' : '#1a8a4a'}
+			height={1.8}
+			animationState={currentAnimState}
+			animationProgress={
+				currentAnimState === 'parry' ? parryAnimProgress :
+				currentAnimState === 'dodge' ? dodgeAnimProgress :
+				attackProgress
+			}
+			walkCycle={walkCycle}
+			bodyTilt={bodyTilt}
+			dodgeDirection={currentDodgeDirection}
+			hasWeapon={true}
+			hasShield={true}
+			weaponType="sword"
+			isCharging={isCharging}
+			chargeIntensity={chargeIntensity}
+			isHit={hitEffectActive}
+			time={animationTime}
+		/>
 
 		<!-- 슬래시 이펙트 (휘두르기 궤적) -->
 		{#if slashTrailOpacity > 0}
@@ -680,24 +703,84 @@
 
 		<!-- 차징 오라 -->
 		{#if isCharging}
-			{@const chargeIntensity = Math.min((Date.now() - chargeStartTime) / HEAVY_ATTACK_THRESHOLD, 1)}
+			{@const chargePower = Math.min((Date.now() - chargeStartTime) / HEAVY_ATTACK_THRESHOLD, 1)}
 			<T.Mesh position={[0, 0.8, 0]}>
-				<T.SphereGeometry args={[0.6 + chargeIntensity * 0.4, 16, 16]} />
+				<T.SphereGeometry args={[0.6 + chargePower * 0.4, 16, 16]} />
 				<T.MeshBasicMaterial
-					color={chargeIntensity > 0.8 ? '#ff4400' : '#ff8800'}
+					color={chargePower > 0.8 ? '#ff4400' : '#ff8800'}
 					transparent
-					opacity={chargeIntensity * 0.3}
+					opacity={chargePower * 0.3}
 				/>
 			</T.Mesh>
 			<!-- 회전하는 링 -->
 			<T.Mesh position={[0, 0.8, 0]} rotation.x={Date.now() * 0.005} rotation.y={Date.now() * 0.003}>
-				<T.TorusGeometry args={[0.5 + chargeIntensity * 0.3, 0.02, 8, 32]} />
+				<T.TorusGeometry args={[0.5 + chargePower * 0.3, 0.02, 8, 32]} />
 				<T.MeshBasicMaterial
 					color="#ffaa00"
 					transparent
-					opacity={chargeIntensity * 0.6}
+					opacity={chargePower * 0.6}
 				/>
 			</T.Mesh>
+		{/if}
+
+		<!-- 회피 이펙트 (스피드 라인 & 잔상) -->
+		{#if isDodging}
+			{@const dodgeProgress = dodgeAnimProgress}
+			<!-- 방향별 스피드 라인 -->
+			<T.Group position={[0, 0.9, 0]}>
+				{#each [0, 1, 2, 3, 4, 5, 6, 7] as i}
+					{@const offsetX = currentDodgeDirection === 'left' ? 0.8 : currentDodgeDirection === 'right' ? -0.8 : (Math.random() - 0.5) * 0.4}
+					{@const offsetZ = currentDodgeDirection === 'backward' ? 0.8 : currentDodgeDirection === 'forward' ? -0.8 : (Math.random() - 0.5) * 0.4}
+					<T.Mesh
+						position={[
+							offsetX * (0.3 + i * 0.15) * dodgeProgress,
+							(i - 4) * 0.15,
+							offsetZ * (0.3 + i * 0.15) * dodgeProgress
+						]}
+						rotation.y={currentDodgeDirection === 'left' ? Math.PI / 2 : currentDodgeDirection === 'right' ? -Math.PI / 2 : currentDodgeDirection === 'forward' ? Math.PI : 0}
+					>
+						<T.BoxGeometry args={[0.02, 0.03, 0.4 + i * 0.1]} />
+						<T.MeshBasicMaterial
+							color="#00ffaa"
+							transparent
+							opacity={(1 - dodgeProgress) * 0.6 * (1 - i * 0.1)}
+						/>
+					</T.Mesh>
+				{/each}
+			</T.Group>
+
+			<!-- 잔상 효과 -->
+			{#if dodgeProgress > 0.1 && dodgeProgress < 0.8}
+				<T.Group
+					position={[
+						currentDodgeDirection === 'right' ? 0.5 : currentDodgeDirection === 'left' ? -0.5 : 0,
+						0,
+						currentDodgeDirection === 'forward' ? 0.5 : currentDodgeDirection === 'backward' ? -0.5 : 0
+					]}
+					scale={[0.9, 0.9, 0.9]}
+				>
+					<T.Mesh position.y={0.9}>
+						<T.CapsuleGeometry args={[0.35, 0.8, 4, 8]} />
+						<T.MeshBasicMaterial color="#00ff88" transparent opacity={0.3 * (1 - dodgeProgress)} />
+					</T.Mesh>
+				</T.Group>
+			{/if}
+
+			<!-- 바닥 먼지 이펙트 -->
+			<T.Group position={[0, 0.1, 0]}>
+				{#each [0, 1, 2, 3] as i}
+					<T.Mesh
+						position={[
+							Math.cos(i * Math.PI / 2 + animationTime * 3) * (0.3 + dodgeProgress * 0.5),
+							dodgeProgress * 0.2,
+							Math.sin(i * Math.PI / 2 + animationTime * 3) * (0.3 + dodgeProgress * 0.5)
+						]}
+					>
+						<T.SphereGeometry args={[0.08 * (1 - dodgeProgress), 6, 6]} />
+						<T.MeshBasicMaterial color="#aaaaaa" transparent opacity={0.4 * (1 - dodgeProgress)} />
+					</T.Mesh>
+				{/each}
+			</T.Group>
 		{/if}
 
 		<!-- 피격 이펙트 -->

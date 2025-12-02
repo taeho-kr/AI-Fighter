@@ -11,6 +11,9 @@
 	} from '$lib/stores/gameStore';
 	import { get } from 'svelte/store';
 
+	// 이전 게임 상태 추적 (새 라운드 감지용)
+	let previousGameState = $state<string>('menu');
+
 	// 컴포넌트 참조
 	let playerComponent: PlayerCombat;
 	let enemyComponent: EnemyAI;
@@ -39,20 +42,32 @@
 	}
 
 	// 적이 플레이어 공격
-	function handleEnemyAttackPlayer(damage: number, type: 'light' | 'heavy') {
+	function handleEnemyAttackPlayer(damage: number, _type: 'light' | 'heavy') {
 		if (!playerComponent) return;
 
-		const currentPlayerState = get(playerState);
+		// 플레이어의 takeDamage가 결과를 반환
+		const result = playerComponent.takeDamage(damage);
 
-		// 패링 체크
-		if (currentPlayerState === 'parrying') {
-			// 패링 성공 - 적 스턴
-			enemyComponent?.applyStun(1.5);
+		if (result === 'parried') {
+			// 패링 성공! 적에게 1.5~2초 스턴 (데미지 없음)
+			const stunDuration = 1.5 + Math.random() * 0.5; // 1.5 ~ 2.0초
+			enemyComponent?.applyStun(stunDuration);
 			return;
 		}
 
-		// 데미지 적용
-		playerComponent.takeDamage(damage);
+		if (result === 'dodged') {
+			// 회피 성공 - 적에게 알림
+			enemyComponent?.notifyPlayerDodged();
+			return;
+		}
+
+		if (result === 'blocked') {
+			// 가드 - 일부 데미지만 적용됨
+			return;
+		}
+
+		// 히트 - 적에게 알림
+		enemyComponent?.notifyHitPlayer();
 
 		// 사망 체크
 		setTimeout(async () => {
@@ -108,6 +123,18 @@
 
 	// 적 위치 업데이트 및 움직임 학습
 	useTask((delta) => {
+		const currentGameState = get(gameState);
+
+		// 게임 상태가 playing으로 변경되면 위치 초기화
+		if (currentGameState === 'playing' && previousGameState !== 'playing') {
+			// 약간의 지연 후 위치 리셋 (물리 엔진 안정화)
+			setTimeout(() => {
+				playerComponent?.resetPosition();
+				enemyComponent?.resetPosition();
+			}, 100);
+		}
+		previousGameState = currentGameState;
+
 		if (enemyComponent) {
 			const pos = enemyComponent.getPosition();
 			if (pos) {
@@ -116,7 +143,7 @@
 		}
 
 		// 공격 충돌 체크
-		if (get(gameState) === 'playing') {
+		if (currentGameState === 'playing') {
 			checkPlayerAttack();
 
 			// 움직임 기록 (0.1초마다)
