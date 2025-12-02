@@ -175,13 +175,7 @@
 		onCameraRotationUpdate={(rot) => cameraRotation = rot}
 	/>
 
-	<!-- 조명 -->
-	<T.DirectionalLight position={[10, 30, 10]} intensity={1.5} castShadow>
-		<T.OrthographicCamera
-			slot="shadow-camera"
-			args={[-30, 30, 30, -30, 0.1, 100]}
-		/>
-	</T.DirectionalLight>
+	<!-- 앰비언트 라이트 (기본 밝기) -->
 	<T.AmbientLight intensity={0.3} />
 
 	<!-- 배경 (하늘) -->

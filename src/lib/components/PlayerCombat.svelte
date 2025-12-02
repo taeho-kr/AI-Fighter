@@ -655,72 +655,162 @@
 			time={animationTime}
 		/>
 
-		<!-- 슬래시 이펙트 (휘두르기 궤적) -->
+		<!-- 슬래시 이펙트 (휘두르기 궤적) - 고급화 -->
 		{#if slashTrailOpacity > 0}
 			<!-- 호 형태의 슬래시 -->
 			<T.Group position={[0.5, 0.8, 0]} rotation.z={slashTrailRotation}>
 				<!-- 주 슬래시 라인 -->
 				<T.Mesh rotation.x={weaponRotationX * 0.5}>
-					<T.TorusGeometry args={[0.8 * slashTrailScale, 0.03, 8, 32, Math.PI * 0.8]} />
+					<T.TorusGeometry args={[0.8 * slashTrailScale, 0.04, 8, 48, Math.PI * 0.85]} />
 					<T.MeshBasicMaterial
 						color={attackType === 'heavy' ? '#ff4444' : '#ffaa00'}
 						transparent
-						opacity={slashTrailOpacity * 0.9}
+						opacity={slashTrailOpacity * 0.95}
 					/>
 				</T.Mesh>
-				<!-- 외곽 글로우 -->
+				<!-- 외곽 글로우 (다중 레이어) -->
 				<T.Mesh rotation.x={weaponRotationX * 0.5}>
-					<T.TorusGeometry args={[0.8 * slashTrailScale, 0.08, 8, 32, Math.PI * 0.8]} />
+					<T.TorusGeometry args={[0.8 * slashTrailScale, 0.1, 8, 48, Math.PI * 0.85]} />
 					<T.MeshBasicMaterial
 						color={attackType === 'heavy' ? '#ff6666' : '#ffcc44'}
 						transparent
-						opacity={slashTrailOpacity * 0.4}
+						opacity={slashTrailOpacity * 0.35}
+					/>
+				</T.Mesh>
+				<T.Mesh rotation.x={weaponRotationX * 0.5}>
+					<T.TorusGeometry args={[0.8 * slashTrailScale, 0.15, 8, 48, Math.PI * 0.85]} />
+					<T.MeshBasicMaterial
+						color={attackType === 'heavy' ? '#ff8888' : '#ffdd66'}
+						transparent
+						opacity={slashTrailOpacity * 0.15}
 					/>
 				</T.Mesh>
 				<!-- 내부 밝은 코어 -->
 				<T.Mesh rotation.x={weaponRotationX * 0.5}>
-					<T.TorusGeometry args={[0.8 * slashTrailScale, 0.015, 8, 32, Math.PI * 0.8]} />
+					<T.TorusGeometry args={[0.8 * slashTrailScale, 0.02, 8, 48, Math.PI * 0.85]} />
 					<T.MeshBasicMaterial
 						color="#ffffff"
 						transparent
-						opacity={slashTrailOpacity * 0.8}
+						opacity={slashTrailOpacity * 0.9}
 					/>
 				</T.Mesh>
+				<!-- 스파크 파티클 -->
+				{#each Array(8) as _, i}
+					{@const angle = (i / 8) * Math.PI * 0.8}
+					{@const sparkR = 0.8 * slashTrailScale}
+					<T.Mesh
+						position={[
+							Math.cos(angle) * sparkR,
+							Math.sin(angle) * sparkR * 0.3,
+							Math.sin(angle) * sparkR
+						]}
+					>
+						<T.SphereGeometry args={[0.03 * slashTrailOpacity, 6, 6]} />
+						<T.MeshBasicMaterial
+							color={attackType === 'heavy' ? '#ffff66' : '#ffffff'}
+							transparent
+							opacity={slashTrailOpacity * 0.8}
+						/>
+					</T.Mesh>
+				{/each}
 			</T.Group>
+
+			<!-- 검날 글로우 (공격 시) -->
+			<T.PointLight
+				position={[0.8, 1.2, 0.3]}
+				intensity={slashTrailOpacity * 8}
+				color={attackType === 'heavy' ? '#ff4444' : '#ffaa00'}
+				distance={3}
+			/>
 		{/if}
 
-		<!-- 차징 파티클 -->
+		<!-- 차징 파티클 (고급화) -->
 		{#each chargeParticles as particle}
 			<T.Mesh position={[particle.x, particle.y, particle.z]}>
-				<T.SphereGeometry args={[0.05 * particle.life, 8, 8]} />
+				<T.SphereGeometry args={[0.06 * particle.life, 8, 8]} />
 				<T.MeshBasicMaterial
-					color="#ff8800"
+					color={particle.life > 0.5 ? '#ff6600' : '#ffaa00'}
 					transparent
-					opacity={particle.life * 0.8}
+					opacity={particle.life * 0.9}
+				/>
+			</T.Mesh>
+			<!-- 파티클 트레일 -->
+			<T.Mesh position={[particle.x * 0.8, particle.y * 0.8, particle.z * 0.8]}>
+				<T.SphereGeometry args={[0.03 * particle.life, 4, 4]} />
+				<T.MeshBasicMaterial
+					color="#ffcc44"
+					transparent
+					opacity={particle.life * 0.4}
 				/>
 			</T.Mesh>
 		{/each}
 
-		<!-- 차징 오라 -->
+		<!-- 차징 오라 (고급화) -->
 		{#if isCharging}
 			{@const chargePower = Math.min((Date.now() - chargeStartTime) / HEAVY_ATTACK_THRESHOLD, 1)}
+			{@const pulseIntensity = 1 + Math.sin(Date.now() * 0.015) * 0.15}
+			<!-- 내부 코어 -->
 			<T.Mesh position={[0, 0.8, 0]}>
-				<T.SphereGeometry args={[0.6 + chargePower * 0.4, 16, 16]} />
+				<T.SphereGeometry args={[0.3 + chargePower * 0.2, 16, 16]} />
+				<T.MeshBasicMaterial
+					color={chargePower > 0.8 ? '#ffff00' : '#ffcc00'}
+					transparent
+					opacity={chargePower * 0.5 * pulseIntensity}
+				/>
+			</T.Mesh>
+			<!-- 외부 오라 -->
+			<T.Mesh position={[0, 0.8, 0]}>
+				<T.SphereGeometry args={[(0.6 + chargePower * 0.5) * pulseIntensity, 16, 16]} />
 				<T.MeshBasicMaterial
 					color={chargePower > 0.8 ? '#ff4400' : '#ff8800'}
 					transparent
-					opacity={chargePower * 0.3}
+					opacity={chargePower * 0.25}
 				/>
 			</T.Mesh>
-			<!-- 회전하는 링 -->
+			<!-- 외곽 글로우 -->
+			<T.Mesh position={[0, 0.8, 0]}>
+				<T.SphereGeometry args={[(0.9 + chargePower * 0.6) * pulseIntensity, 16, 16]} />
+				<T.MeshBasicMaterial
+					color="#ff6600"
+					transparent
+					opacity={chargePower * 0.1}
+				/>
+			</T.Mesh>
+			<!-- 다중 회전 링 -->
 			<T.Mesh position={[0, 0.8, 0]} rotation.x={Date.now() * 0.005} rotation.y={Date.now() * 0.003}>
-				<T.TorusGeometry args={[0.5 + chargePower * 0.3, 0.02, 8, 32]} />
+				<T.TorusGeometry args={[0.5 + chargePower * 0.35, 0.025, 8, 32]} />
 				<T.MeshBasicMaterial
 					color="#ffaa00"
 					transparent
-					opacity={chargePower * 0.6}
+					opacity={chargePower * 0.7}
 				/>
 			</T.Mesh>
+			<T.Mesh position={[0, 0.8, 0]} rotation.x={Date.now() * -0.004} rotation.z={Date.now() * 0.006}>
+				<T.TorusGeometry args={[0.65 + chargePower * 0.3, 0.015, 8, 32]} />
+				<T.MeshBasicMaterial
+					color="#ff6600"
+					transparent
+					opacity={chargePower * 0.5}
+				/>
+			</T.Mesh>
+			<!-- 수직 에너지 기둥 -->
+			{#if chargePower > 0.5}
+				<T.Mesh position={[0, 0.8, 0]}>
+					<T.CylinderGeometry args={[0.1 * chargePower, 0.05 * chargePower, 2 * chargePower, 8]} />
+					<T.MeshBasicMaterial
+						color="#ffaa44"
+						transparent
+						opacity={(chargePower - 0.5) * 0.4}
+					/>
+				</T.Mesh>
+			{/if}
+			<!-- 차징 라이트 -->
+			<T.PointLight
+				position={[0, 1, 0]}
+				intensity={chargePower * 10 * pulseIntensity}
+				color={chargePower > 0.8 ? '#ff4400' : '#ff8800'}
+				distance={5}
+			/>
 		{/if}
 
 		<!-- 회피 이펙트 (스피드 라인 & 잔상) -->
@@ -783,31 +873,57 @@
 			</T.Group>
 		{/if}
 
-		<!-- 피격 이펙트 -->
+		<!-- 피격 이펙트 (고급화) -->
 		{#if hitEffectActive}
 			<T.Group position={[0, 1, 0]}>
-				<!-- 히트 플래시 -->
+				<!-- 히트 플래시 (다중 레이어) -->
+				<T.Mesh>
+					<T.SphereGeometry args={[0.5, 16, 16]} />
+					<T.MeshBasicMaterial
+						color="#ffffff"
+						transparent
+						opacity={0.6}
+					/>
+				</T.Mesh>
 				<T.Mesh>
 					<T.SphereGeometry args={[0.8, 16, 16]} />
 					<T.MeshBasicMaterial
-						color="#ff0000"
+						color="#ff4444"
 						transparent
 						opacity={0.4}
 					/>
 				</T.Mesh>
-				<!-- 히트 스파크 -->
-				{#each [0, 1, 2, 3, 4, 5] as i}
+				<T.Mesh>
+					<T.SphereGeometry args={[1.2, 16, 16]} />
+					<T.MeshBasicMaterial
+						color="#ff0000"
+						transparent
+						opacity={0.15}
+					/>
+				</T.Mesh>
+				<!-- 방사형 스파크 -->
+				{#each Array(12) as _, i}
+					{@const angle = (i / 12) * Math.PI * 2}
+					{@const length = 0.3 + Math.random() * 0.4}
 					<T.Mesh
 						position={[
-							Math.cos(i * Math.PI / 3) * 0.5,
-							Math.sin(i * Math.PI / 3) * 0.3,
-							Math.sin(i * Math.PI / 3) * 0.5
+							Math.cos(angle) * 0.4,
+							(Math.random() - 0.5) * 0.4,
+							Math.sin(angle) * 0.4
 						]}
+						rotation.z={angle}
 					>
-						<T.BoxGeometry args={[0.1, 0.02, 0.02]} />
-						<T.MeshBasicMaterial color="#ff6644" />
+						<T.BoxGeometry args={[length, 0.025, 0.025]} />
+						<T.MeshBasicMaterial color={i % 2 === 0 ? '#ff6644' : '#ffaa44'} />
 					</T.Mesh>
 				{/each}
+				<!-- 히트 라이트 -->
+				<T.PointLight
+					position={[0, 0, 0]}
+					intensity={15}
+					color="#ff4444"
+					distance={4}
+				/>
 			</T.Group>
 		{/if}
 
@@ -863,10 +979,19 @@
 			</T.Group>
 		{/if}
 
-		<!-- 패링 이펙트 -->
+		<!-- 패링 이펙트 (고급화) -->
 		{#if parryFlashEffect}
 			<T.Group position={[-0.4, 0.8, 0.6]}>
-				<!-- 패링 폭발 -->
+				<!-- 패링 코어 플래시 -->
+				<T.Mesh>
+					<T.SphereGeometry args={[0.3, 16, 16]} />
+					<T.MeshBasicMaterial
+						color="#ffffff"
+						transparent
+						opacity={0.9}
+					/>
+				</T.Mesh>
+				<!-- 패링 폭발 (다중 레이어) -->
 				<T.Mesh>
 					<T.SphereGeometry args={[0.6, 16, 16]} />
 					<T.MeshBasicMaterial
@@ -875,30 +1000,70 @@
 						opacity={0.5}
 					/>
 				</T.Mesh>
-				<!-- 외곽 링 -->
+				<T.Mesh>
+					<T.SphereGeometry args={[0.9, 16, 16]} />
+					<T.MeshBasicMaterial
+						color="#ffcc00"
+						transparent
+						opacity={0.2}
+					/>
+				</T.Mesh>
+				<!-- 확장 충격파 링 -->
 				<T.Mesh rotation.x={Math.PI / 2}>
-					<T.RingGeometry args={[0.4, 0.7, 16]} />
+					<T.RingGeometry args={[0.8, 1.0, 32]} />
 					<T.MeshBasicMaterial
 						color="#ffffff"
 						transparent
-						opacity={0.8}
+						opacity={0.7}
 						side={2}
 					/>
 				</T.Mesh>
-				<!-- 스파크 라인 -->
-				{#each [0, 1, 2, 3, 4, 5, 6, 7] as i}
+				<T.Mesh rotation.x={Math.PI / 2}>
+					<T.RingGeometry args={[0.5, 0.65, 32]} />
+					<T.MeshBasicMaterial
+						color="#ffff88"
+						transparent
+						opacity={0.9}
+						side={2}
+					/>
+				</T.Mesh>
+				<!-- 방사형 스파크 라인 -->
+				{#each Array(12) as _, i}
+					{@const angle = (i / 12) * Math.PI * 2}
+					{@const length = 0.4 + (i % 2) * 0.2}
 					<T.Mesh
 						position={[
-							Math.cos(i * Math.PI / 4) * 0.5,
-							Math.sin(i * Math.PI / 4) * 0.5,
+							Math.cos(angle) * 0.3,
+							Math.sin(angle) * 0.3,
 							0
 						]}
-						rotation.z={i * Math.PI / 4}
+						rotation.z={angle}
 					>
-						<T.BoxGeometry args={[0.3, 0.04, 0.04]} />
-						<T.MeshBasicMaterial color="#ffffaa" />
+						<T.BoxGeometry args={[length, 0.05, 0.05]} />
+						<T.MeshBasicMaterial color={i % 3 === 0 ? '#ffffff' : '#ffff88'} />
 					</T.Mesh>
 				{/each}
+				<!-- 패링 파티클 -->
+				{#each Array(8) as _, i}
+					{@const pAngle = (i / 8) * Math.PI * 2}
+					<T.Mesh
+						position={[
+							Math.cos(pAngle) * 0.6,
+							Math.sin(pAngle) * 0.6,
+							(Math.random() - 0.5) * 0.3
+						]}
+					>
+						<T.SphereGeometry args={[0.05, 6, 6]} />
+						<T.MeshBasicMaterial color="#ffff00" />
+					</T.Mesh>
+				{/each}
+				<!-- 패링 라이트 -->
+				<T.PointLight
+					position={[0, 0, 0]}
+					intensity={25}
+					color="#ffff44"
+					distance={6}
+				/>
 			</T.Group>
 		{/if}
 	</T.Group>

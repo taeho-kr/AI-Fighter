@@ -12,7 +12,9 @@
       "Bash(dir:*)",
       "Bash(npm run check:*)",
       "Bash(npm run build:*)",
-      "Bash(npx vite build:*)"
+      "Bash(npx vite build:*)",
+      "Bash(timeout 5:*)",
+      "Bash(git add:*)"
     ],
     "deny": [],
     "ask": []

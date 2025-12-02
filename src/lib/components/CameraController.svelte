@@ -27,8 +27,8 @@
 
 	function handleMouseMove(e: MouseEvent) {
 		if (isPointerLocked) {
-			mouseX += e.movementX * 0.002;
-			mouseY = Math.max(-0.5, Math.min(0.8, mouseY + e.movementY * 0.002));
+			mouseX -= e.movementX * 0.002;
+			mouseY = Math.max(-0.5, Math.min(0.8, mouseY - e.movementY * 0.002));
 			onCameraRotationUpdate(mouseX);
 		}
 	}

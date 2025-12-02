@@ -2,31 +2,21 @@
 	import {
 		playerHealth, playerMaxHealth, playerStamina, playerMaxStamina,
 		enemyHealth, enemyMaxHealth, gameState, currentRound, bossLevel,
-		cameraMode, resetGame, startGame, aiLearningData, aiStats, aiLearningEnabled, resetAILearning
+		startGame, aiLearningData
 	} from '$lib/stores/gameStore';
 	import { get } from 'svelte/store';
 	import { onMount } from 'svelte';
 
-	let { onRestart = () => {}, onNextRound = () => {} } = $props();
+	let { onRestart = () => {}, onNextRound = () => {} }: { onRestart?: () => void, onNextRound?: () => void } = $props();
 
-	// 조작 가이드 표시
-	let showControls = $state(true);
-	let showAIDebug = $state(true);
+	// How to Play 패널 표시
 	let showHowToPlay = $state(false);
 
 	// AI 학습 상태
 	let isLearning = $state(false);
 	let learningProgress = $state(0);
-	let learningPhase = $state<'collecting' | 'combat' | 'movement' | 'optimizing' | 'complete'>('collecting');
 	let learningComplete = $state(false);
 	let currentLearningItem = $state('');  // 현재 학습 중인 항목
-
-	// 입력 디버그
-	let inputDebug = $state({
-		keys: { w: false, a: false, s: false, d: false, shift: false },
-		mouse: { left: false, right: false },
-		charging: false
-	});
 
 	// 일시정지 기능
 	function togglePause() {
@@ -60,7 +50,6 @@
 	function startAILearning() {
 		isLearning = true;
 		learningProgress = 0;
-		learningPhase = 'collecting';
 		learningComplete = false;
 		currentLearningItem = '';
 
@@ -132,18 +121,9 @@
 		learningItems.push('신경망 가중치 조정 중...');
 		learningItems.push('대응 전략 최적화 중...');
 
-		// 학습 단계 정의
-		const phases: Array<{ phase: 'collecting' | 'combat' | 'movement' | 'optimizing' | 'complete', duration: number }> = [
-			{ phase: 'collecting', duration: 800 },
-			{ phase: 'combat', duration: 1200 },
-			{ phase: 'movement', duration: 1200 },
-			{ phase: 'optimizing', duration: 800 },
-			{ phase: 'complete', duration: 500 }
-		];
-
 		let elapsed = 0;
 		let itemIndex = 0;
-		const totalDuration = phases.reduce((sum, p) => sum + p.duration, 0);
+		const totalDuration = 4500;  // 4.5초
 		const itemInterval = totalDuration / learningItems.length;
 
 		function animate() {
@@ -158,16 +138,6 @@
 			}
 			if (itemIndex === 0 && !currentLearningItem) {
 				currentLearningItem = learningItems[0];
-			}
-
-			// 현재 단계 결정
-			let accumulated = 0;
-			for (const p of phases) {
-				accumulated += p.duration;
-				if (elapsed <= accumulated) {
-					learningPhase = p.phase;
-					break;
-				}
 			}
 
 			if (elapsed < totalDuration) {
@@ -240,99 +210,32 @@
 				}
 				return;
 			}
-
-			// 디버그 입력 추적
-			if (e.code === 'KeyW') inputDebug.keys.w = true;
-			if (e.code === 'KeyA') inputDebug.keys.a = true;
-			if (e.code === 'KeyS') inputDebug.keys.s = true;
-			if (e.code === 'KeyD') inputDebug.keys.d = true;
-			if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') inputDebug.keys.shift = true;
 		}
 
-		function onKeyUp(e: KeyboardEvent) {
-			if (e.code === 'KeyW') inputDebug.keys.w = false;
-			if (e.code === 'KeyA') inputDebug.keys.a = false;
-			if (e.code === 'KeyS') inputDebug.keys.s = false;
-			if (e.code === 'KeyD') inputDebug.keys.d = false;
-			if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') inputDebug.keys.shift = false;
-		}
-
-		function onMouseDown(e: MouseEvent) {
-			if (e.button === 0) {
-				inputDebug.mouse.left = true;
-				inputDebug.charging = true;
-			}
-			if (e.button === 2) inputDebug.mouse.right = true;
-		}
-
-		function onMouseUp(e: MouseEvent) {
-			if (e.button === 0) {
-				inputDebug.mouse.left = false;
-				inputDebug.charging = false;
-			}
-			if (e.button === 2) inputDebug.mouse.right = false;
-		}
-
-		// document에 직접 리스너 등록 (캡처 단계에서)
 		document.addEventListener('keydown', onKeyDown, true);
-		document.addEventListener('keyup', onKeyUp, true);
-		document.addEventListener('mousedown', onMouseDown, true);
-		document.addEventListener('mouseup', onMouseUp, true);
 
 		return () => {
 			document.removeEventListener('keydown', onKeyDown, true);
-			document.removeEventListener('keyup', onKeyUp, true);
-			document.removeEventListener('mousedown', onMouseDown, true);
-			document.removeEventListener('mouseup', onMouseUp, true);
 		};
 	});
 </script>
 
 <div class="game-ui">
-	<!-- 입력 디버그 (좌측 상단) - playing 상태에서만 표시 -->
-	{#if $gameState === 'playing'}
-		<div class="input-debug">
-			<div class="debug-title">INPUT</div>
-			<div class="key-display">
-				<div class="key-row">
-					<span class="key-box" class:active={inputDebug.keys.w}>W</span>
-				</div>
-				<div class="key-row">
-					<span class="key-box" class:active={inputDebug.keys.a}>A</span>
-					<span class="key-box" class:active={inputDebug.keys.s}>S</span>
-					<span class="key-box" class:active={inputDebug.keys.d}>D</span>
-				</div>
-				<div class="key-row">
-					<span class="key-box wide" class:active={inputDebug.keys.shift}>SHIFT</span>
-				</div>
-			</div>
-			<div class="mouse-display">
-				<span class="mouse-btn" class:active={inputDebug.mouse.left}>L</span>
-				<span class="mouse-btn" class:active={inputDebug.mouse.right}>R</span>
-			</div>
-			{#if inputDebug.charging}
-				<div class="charging-indicator">CHARGING...</div>
-			{/if}
-		</div>
-	{/if}
-
 	<!-- 게임 플레이 중 UI -->
 	{#if $gameState === 'playing' || $gameState === 'paused'}
-		<!-- 플레이어 체력/스태미나 바 -->
+		<!-- 플레이어 체력/스태미나 바 (화면 중앙 하단) -->
 		<div class="player-stats">
 			<div class="stat-bar health">
 				<div class="stat-label">HP</div>
 				<div class="stat-bg">
 					<div class="stat-fill" style="width: {($playerHealth / $playerMaxHealth) * 100}%"></div>
 				</div>
-				<div class="stat-value">{Math.ceil($playerHealth)}/{$playerMaxHealth}</div>
 			</div>
 			<div class="stat-bar stamina">
 				<div class="stat-label">ST</div>
 				<div class="stat-bg">
 					<div class="stat-fill" style="width: {($playerStamina / $playerMaxStamina) * 100}%"></div>
 				</div>
-				<div class="stat-value">{Math.ceil($playerStamina)}/{$playerMaxStamina}</div>
 			</div>
 		</div>
 
@@ -350,96 +253,6 @@
 		<div class="round-display">
 			Round {$currentRound}
 		</div>
-
-		<!-- 카메라 모드 표시 -->
-		<div class="camera-mode">
-			{$cameraMode === 'first-person' ? '1인칭' : '3인칭'} (V키로 전환)
-		</div>
-	{/if}
-
-	<!-- 조작 가이드 (playing 상태에서만) -->
-	{#if $gameState === 'playing'}
-		{#if showControls}
-			<div class="controls-guide">
-				<button class="close-btn" onclick={() => showControls = false}>×</button>
-				<h3>조작법</h3>
-				<div class="control-row"><span class="key">WASD</span> 이동</div>
-				<div class="control-row"><span class="key">좌클릭</span> 약공격</div>
-				<div class="control-row"><span class="key">좌클릭 홀드</span> 강공격</div>
-				<div class="control-row"><span class="key">우클릭 홀드</span> 가드</div>
-				<div class="control-row"><span class="key">우클릭 타이밍</span> 패링</div>
-				<div class="control-row"><span class="key">Shift</span> 회피</div>
-				<div class="control-row"><span class="key">V</span> 시점 전환</div>
-				<div class="control-row"><span class="key">ESC</span> 일시정지</div>
-				<p class="tip">패링: 적 공격 직전에 우클릭!</p>
-			</div>
-		{:else}
-			<button class="show-controls-btn" onclick={() => showControls = true}>?</button>
-		{/if}
-	{/if}
-
-	<!-- AI 학습 현황 (playing 상태에서만) -->
-	{#if $gameState === 'playing'}
-		{#if showAIDebug}
-			<div class="ai-learning-info">
-				<button class="close-btn small" onclick={() => showAIDebug = false}>×</button>
-				<div class="learning-title">Deep Q-Network</div>
-
-				<!-- DQN 통계 -->
-				<div class="learning-section">
-					<div class="section-title">신경망 학습</div>
-					<div class="learning-item">
-						에피소드: <span class="highlight">{$aiStats.totalEpisodes}</span>
-					</div>
-					<div class="learning-item">
-						탐험률: <span class="highlight">{($aiStats.explorationRate * 100).toFixed(1)}%</span>
-					</div>
-					<div class="learning-item">
-						메모리: <span class="highlight">{$aiStats.memorySize}</span>
-					</div>
-					<div class="learning-item">
-						평균 보상: <span class="highlight">{$aiStats.averageReward.toFixed(2)}</span>
-					</div>
-					{#if $aiStats.lastAction}
-						<div class="learning-item">
-							현재 행동: <span class="action-tag">{$aiStats.lastAction}</span>
-						</div>
-					{/if}
-					<div class="learning-item">
-						모델 상태: <span class="highlight">{$aiStats.isLearning ? '준비됨' : '로딩 중...'}</span>
-					</div>
-				</div>
-
-				<!-- 통계 기반 패턴 -->
-				<div class="learning-section">
-					<div class="section-title">플레이어 패턴</div>
-					<div class="learning-item">
-						공격: 약({$aiLearningData.attackPatterns.light_attack}) / 강({$aiLearningData.attackPatterns.heavy_attack})
-					</div>
-					<div class="learning-item">
-						회피: ←{$aiLearningData.dodgeDirections.left} →{$aiLearningData.dodgeDirections.right} ↑{$aiLearningData.dodgeDirections.forward} ↓{$aiLearningData.dodgeDirections.backward}
-					</div>
-					<div class="learning-item">
-						방어: 가드({$aiLearningData.defensiveActions.guard}) / 패링({$aiLearningData.defensiveActions.parry})
-					</div>
-				</div>
-
-				<!-- 학습 컨트롤 -->
-				<div class="learning-controls">
-					<label class="toggle-label">
-						<input
-							type="checkbox"
-							checked={$aiLearningEnabled}
-							onchange={() => aiLearningEnabled.update(v => !v)}
-						/>
-						DQN 학습 활성화
-					</label>
-					<button class="reset-btn" onclick={resetAILearning}>학습 초기화</button>
-				</div>
-			</div>
-		{:else}
-			<button class="show-ai-btn" onclick={() => showAIDebug = true}>AI</button>
-		{/if}
 	{/if}
 
 	<!-- 게임 오버 화면 -->
@@ -580,123 +393,34 @@
 		z-index: 100;
 	}
 
-	.input-debug {
-		position: absolute;
-		top: 30px;
-		left: 30px;
-		background: rgba(0, 0, 0, 0.8);
-		padding: 10px;
-		border-radius: 8px;
-		border: 1px solid rgba(255, 255, 255, 0.2);
-	}
-
-	.debug-title {
-		font-size: 10px;
-		font-weight: bold;
-		margin-bottom: 8px;
-		color: #888;
-		text-align: center;
-	}
-
-	.key-display {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: 4px;
-	}
-
-	.key-row {
-		display: flex;
-		gap: 4px;
-	}
-
-	.key-box {
-		width: 28px;
-		height: 28px;
-		background: rgba(255, 255, 255, 0.1);
-		border: 1px solid rgba(255, 255, 255, 0.3);
-		border-radius: 4px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		font-size: 12px;
-		font-weight: bold;
-		transition: all 0.1s;
-	}
-
-	.key-box.wide {
-		width: 90px;
-	}
-
-	.key-box.active {
-		background: #22c55e;
-		border-color: #22c55e;
-		color: #000;
-	}
-
-	.mouse-display {
-		display: flex;
-		gap: 8px;
-		justify-content: center;
-		margin-top: 8px;
-	}
-
-	.mouse-btn {
-		width: 32px;
-		height: 24px;
-		background: rgba(255, 255, 255, 0.1);
-		border: 1px solid rgba(255, 255, 255, 0.3);
-		border-radius: 4px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		font-size: 11px;
-		font-weight: bold;
-	}
-
-	.mouse-btn.active {
-		background: #e94560;
-		border-color: #e94560;
-		color: #fff;
-	}
-
-	.charging-indicator {
-		margin-top: 6px;
-		text-align: center;
-		font-size: 10px;
-		color: #ff8800;
-		animation: pulse 0.3s infinite;
-	}
-
-	@keyframes pulse {
-		0%, 100% { opacity: 1; }
-		50% { opacity: 0.5; }
-	}
-
 	.player-stats {
 		position: absolute;
-		bottom: 30px;
-		left: 30px;
+		bottom: 40px;
+		left: 50%;
+		transform: translateX(-50%);
 		display: flex;
 		flex-direction: column;
-		gap: 8px;
+		gap: 6px;
+		align-items: center;
 	}
 
 	.stat-bar {
 		display: flex;
 		align-items: center;
-		gap: 10px;
+		gap: 8px;
 	}
 
 	.stat-label {
-		width: 30px;
+		width: 24px;
 		font-weight: bold;
-		font-size: 14px;
+		font-size: 12px;
+		text-align: right;
+		opacity: 0.8;
 	}
 
 	.stat-bg {
-		width: 200px;
-		height: 20px;
+		width: 300px;
+		height: 12px;
 		background: rgba(0, 0, 0, 0.6);
 		border-radius: 4px;
 		overflow: hidden;
@@ -714,11 +438,6 @@
 
 	.stamina .stat-fill {
 		background: linear-gradient(to right, #44ff44, #88ff88);
-	}
-
-	.stat-value {
-		font-size: 12px;
-		opacity: 0.8;
 	}
 
 	.enemy-stats {
@@ -753,197 +472,6 @@
 		font-size: 24px;
 		font-weight: bold;
 		text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8);
-	}
-
-	.camera-mode {
-		position: absolute;
-		bottom: 30px;
-		right: 30px;
-		font-size: 14px;
-		opacity: 0.7;
-	}
-
-	.controls-guide {
-		position: absolute;
-		top: 100px;
-		right: 30px;
-		background: rgba(0, 0, 0, 0.7);
-		padding: 15px 20px;
-		border-radius: 8px;
-		pointer-events: auto;
-	}
-
-	.controls-guide h3 {
-		margin: 0 0 10px 0;
-		font-size: 16px;
-	}
-
-	.control-row {
-		font-size: 13px;
-		margin: 5px 0;
-	}
-
-	.key {
-		display: inline-block;
-		background: rgba(255, 255, 255, 0.2);
-		padding: 2px 8px;
-		border-radius: 4px;
-		margin-right: 8px;
-		min-width: 80px;
-		text-align: center;
-		font-size: 11px;
-	}
-
-	.tip {
-		margin-top: 10px;
-		padding-top: 8px;
-		border-top: 1px solid rgba(255, 255, 255, 0.2);
-		font-size: 11px;
-		color: #ffcc00;
-		font-style: italic;
-	}
-
-	.close-btn {
-		position: absolute;
-		top: 5px;
-		right: 10px;
-		background: none;
-		border: none;
-		color: white;
-		font-size: 20px;
-		cursor: pointer;
-		opacity: 0.7;
-	}
-
-	.close-btn:hover {
-		opacity: 1;
-	}
-
-	.show-controls-btn {
-		position: absolute;
-		top: 100px;
-		right: 30px;
-		width: 36px;
-		height: 36px;
-		border-radius: 50%;
-		background: rgba(0, 0, 0, 0.7);
-		border: none;
-		color: white;
-		font-size: 18px;
-		cursor: pointer;
-		pointer-events: auto;
-	}
-
-	.ai-learning-info {
-		position: absolute;
-		bottom: 100px;
-		left: 30px;
-		background: rgba(0, 0, 0, 0.7);
-		padding: 12px 15px;
-		border-radius: 8px;
-		font-size: 11px;
-		min-width: 200px;
-		pointer-events: auto;
-		border: 1px solid rgba(233, 69, 96, 0.3);
-	}
-
-	.learning-title {
-		font-weight: bold;
-		margin-bottom: 8px;
-		color: #e94560;
-		font-size: 13px;
-	}
-
-	.learning-section {
-		margin: 8px 0;
-		padding: 6px 0;
-		border-top: 1px solid rgba(255, 255, 255, 0.1);
-	}
-
-	.section-title {
-		font-size: 10px;
-		text-transform: uppercase;
-		color: #888;
-		margin-bottom: 4px;
-	}
-
-	.learning-item {
-		margin: 3px 0;
-	}
-
-	.highlight {
-		color: #4fc3f7;
-		font-weight: bold;
-	}
-
-	.action-tag {
-		background: rgba(233, 69, 96, 0.3);
-		padding: 1px 6px;
-		border-radius: 3px;
-		color: #ff8a9e;
-		font-size: 10px;
-	}
-
-	.learning-controls {
-		margin-top: 10px;
-		padding-top: 8px;
-		border-top: 1px solid rgba(255, 255, 255, 0.1);
-		display: flex;
-		flex-direction: column;
-		gap: 6px;
-	}
-
-	.toggle-label {
-		display: flex;
-		align-items: center;
-		gap: 6px;
-		cursor: pointer;
-		font-size: 11px;
-	}
-
-	.toggle-label input {
-		cursor: pointer;
-	}
-
-	.reset-btn {
-		padding: 4px 8px;
-		font-size: 10px;
-		background: rgba(233, 69, 96, 0.3);
-		border: 1px solid rgba(233, 69, 96, 0.5);
-		color: white;
-		border-radius: 4px;
-		cursor: pointer;
-		margin-top: 4px;
-	}
-
-	.reset-btn:hover {
-		background: rgba(233, 69, 96, 0.5);
-	}
-
-	.close-btn.small {
-		font-size: 16px;
-		top: 2px;
-		right: 6px;
-	}
-
-	.show-ai-btn {
-		position: absolute;
-		bottom: 100px;
-		left: 30px;
-		width: 36px;
-		height: 36px;
-		border-radius: 50%;
-		background: rgba(233, 69, 96, 0.5);
-		border: 1px solid rgba(233, 69, 96, 0.8);
-		color: white;
-		font-size: 12px;
-		font-weight: bold;
-		cursor: pointer;
-		pointer-events: auto;
-	}
-
-	.show-ai-btn:hover {
-		background: rgba(233, 69, 96, 0.7);
 	}
 
 	.overlay {
@@ -1215,45 +743,6 @@
 		box-shadow: 0 0 10px rgba(68, 255, 68, 0.5);
 	}
 
-	.learning-phase {
-		font-size: 14px;
-		color: #aaffaa;
-		margin-bottom: 20px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		gap: 8px;
-	}
-
-	.phase-icon {
-		font-size: 18px;
-	}
-
-	.learning-stats {
-		display: flex;
-		justify-content: center;
-		gap: 30px;
-	}
-
-	.stat-item {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: 4px;
-	}
-
-	.stat-item .stat-label {
-		font-size: 12px;
-		color: #888;
-		text-transform: uppercase;
-	}
-
-	.stat-item .stat-value {
-		font-size: 20px;
-		font-weight: bold;
-		color: #4fc3f7;
-	}
-
 	/* 학습 완료 섹션 */
 	.learning-complete-section {
 		margin: 30px 0;
@@ -1312,12 +801,6 @@
 		color: #88ff88;
 		font-size: 18px;
 		margin: 15px 0 20px 0;
-	}
-
-	.warning-text {
-		color: #ffaa00;
-		font-size: 14px;
-		margin: 5px 0 20px 0;
 	}
 
 	.hint-text {
