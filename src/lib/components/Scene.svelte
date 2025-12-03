@@ -19,14 +19,20 @@
 	let enemyComponent: EnemyAI;
 
 	// 위치 추적
-	let playerPosition = $state(new THREE.Vector3(0, 2, 8));
+	let playerPosition = $state(new THREE.Vector3(0, 2, 5));
 	let playerRotation = $state(0);
-	let enemyPosition = $state(new THREE.Vector3(0, 2, -8));
+	let enemyPosition = $state(new THREE.Vector3(0, 2, -5));
 	let cameraRotation = $state(0);
 
 	// 움직임 학습용
-	let lastDistance = $state(16);  // 초기 거리
+	let lastDistance = $state(10);  // 초기 거리 (플레이어 z=5, 적 z=-5)
 	let movementRecordTimer = $state(0);
+
+	// 프레임 스킵 최적화용 (2프레임마다 거리 계산)
+	let frameCounter = 0;
+	// Vector3 재사용 (GC 방지)
+	const tempPlayerPos = new THREE.Vector3();
+	const tempEnemyPos = new THREE.Vector3();
 
 	// 공격 히트 추적 (공격당 한 번만 데미지 적용)
 	let hasHitThisAttack = $state(false);  // 현재 공격에서 히트했는지
@@ -79,7 +85,7 @@
 		}, 100);
 	}
 
-	// 플레이어가 적 공격 (전투 충돌 체크)
+	// 플레이어가 적 공격 (전투 충돌 체크) - Vector3 재사용 최적화
 	function checkPlayerAttack() {
 		if (!playerComponent || !enemyComponent) return;
 
@@ -101,7 +107,11 @@
 		const ePos = enemyComponent.getPosition();
 		if (!pPos || !ePos) return;
 
-		const distance = pPos.distanceTo(ePos);
+		// Vector3 재사용하여 거리 계산
+		tempPlayerPos.copy(pPos);
+		tempEnemyPos.copy(ePos);
+		const distance = tempPlayerPos.distanceTo(tempEnemyPos);
+
 		if (distance <= 2.5) {
 			// 이 공격은 히트 처리 완료
 			hasHitThisAttack = true;
@@ -121,8 +131,9 @@
 		}
 	}
 
-	// 적 위치 업데이트 및 움직임 학습
+	// 적 위치 업데이트 및 움직임 학습 - 프레임 스킵 최적화
 	useTask((delta) => {
+		frameCounter++;
 		const currentGameState = get(gameState);
 
 		// 게임 상태가 playing으로 변경되면 위치 초기화
@@ -135,7 +146,8 @@
 		}
 		previousGameState = currentGameState;
 
-		if (enemyComponent) {
+		// 적 위치 업데이트 (2프레임마다)
+		if (frameCounter % 2 === 0 && enemyComponent) {
 			const pos = enemyComponent.getPosition();
 			if (pos) {
 				enemyPosition = pos;
@@ -146,7 +158,7 @@
 		if (currentGameState === 'playing') {
 			checkPlayerAttack();
 
-			// 움직임 기록 (0.1초마다)
+			// 움직임 기록 (0.1초마다) - Vector3 재사용
 			movementRecordTimer += delta;
 			if (movementRecordTimer >= 0.1 && playerComponent && enemyComponent) {
 				movementRecordTimer = 0;
@@ -154,7 +166,9 @@
 				const pPos = playerComponent.getPosition();
 				const ePos = enemyComponent.getPosition();
 				if (pPos && ePos) {
-					const currentDistance = pPos.distanceTo(ePos);
+					tempPlayerPos.copy(pPos);
+					tempEnemyPos.copy(ePos);
+					const currentDistance = tempPlayerPos.distanceTo(tempEnemyPos);
 					const deltaDistance = currentDistance - lastDistance;
 					const movementDir = playerComponent.getMovementDirection();
 
@@ -175,14 +189,85 @@
 		onCameraRotationUpdate={(rot) => cameraRotation = rot}
 	/>
 
-	<!-- 앰비언트 라이트 (기본 밝기) -->
-	<T.AmbientLight intensity={0.3} />
+	<!-- 앰비언트 라이트 (저녁 분위기) -->
+	<T.AmbientLight intensity={0.35} color="#ffeedd" />
 
-	<!-- 배경 (하늘) -->
+	<!-- 메인 태양광 (석양) -->
+	<T.DirectionalLight
+		position={[15, 12, 8]}
+		intensity={1.8}
+		color="#ffaa66"
+		castShadow
+	/>
+
+	<!-- 보조 조명 (반대편 - 푸른 하늘 반사) -->
+	<T.DirectionalLight
+		position={[-10, 8, -5]}
+		intensity={0.5}
+		color="#8888cc"
+	/>
+
+	<!-- 하단 반사광 (모래 반사) -->
+	<T.DirectionalLight
+		position={[0, -5, 0]}
+		intensity={0.3}
+		color="#c4a574"
+	/>
+
+	<!-- 하늘 배경 (석양 그라데이션) -->
 	<T.Mesh>
 		<T.SphereGeometry args={[100, 32, 32]} />
-		<T.MeshBasicMaterial color="#0a0a1a" side={THREE.BackSide} />
+		<T.ShaderMaterial
+			side={THREE.BackSide}
+			uniforms={{
+				topColor: { value: new THREE.Color("#1a1a3a") },
+				bottomColor: { value: new THREE.Color("#ff6644") },
+				offset: { value: 10 },
+				exponent: { value: 0.5 }
+			}}
+			vertexShader={`
+				varying vec3 vWorldPosition;
+				void main() {
+					vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+					vWorldPosition = worldPosition.xyz;
+					gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+				}
+			`}
+			fragmentShader={`
+				uniform vec3 topColor;
+				uniform vec3 bottomColor;
+				uniform float offset;
+				uniform float exponent;
+				varying vec3 vWorldPosition;
+				void main() {
+					float h = normalize(vWorldPosition + offset).y;
+					gl_FragColor = vec4(mix(bottomColor, topColor, max(pow(max(h, 0.0), exponent), 0.0)), 1.0);
+				}
+			`}
+		/>
 	</T.Mesh>
+
+	<!-- 별들 (밤하늘) -->
+	{#each Array(50) as _, i}
+		{@const theta = Math.random() * Math.PI * 2}
+		{@const phi = Math.random() * Math.PI * 0.4}
+		{@const r = 95}
+		{@const x = r * Math.sin(phi) * Math.cos(theta)}
+		{@const y = r * Math.cos(phi) + 30}
+		{@const z = r * Math.sin(phi) * Math.sin(theta)}
+		{@const size = 0.1 + Math.random() * 0.2}
+		<T.Mesh position={[x, y, z]}>
+			<T.SphereGeometry args={[size, 4, 4]} />
+			<T.MeshBasicMaterial color="#ffffff" />
+		</T.Mesh>
+	{/each}
+
+	<!-- 달 -->
+	<T.Mesh position={[-40, 50, -30]}>
+		<T.SphereGeometry args={[5, 16, 16]} />
+		<T.MeshBasicMaterial color="#ffffee" />
+	</T.Mesh>
+	<T.PointLight position={[-40, 50, -30]} intensity={10} color="#aabbff" distance={150} />
 
 	<!-- 아레나 -->
 	<Arena />

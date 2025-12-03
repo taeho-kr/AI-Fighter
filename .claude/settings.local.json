@@ -14,7 +14,21 @@
       "Bash(npm run build:*)",
       "Bash(npx vite build:*)",
       "Bash(timeout 5:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(find:*)",
+      "WebSearch",
+      "WebFetch(domain:quaternius.com)",
+      "WebFetch(domain:sketchfab.com)",
+      "WebFetch(domain:poly.pizza)",
+      "Bash(curl:*)",
+      "Bash(node:*)",
+      "Bash(xxd:*)",
+      "WebFetch(domain:github.com)",
+      "Bash(unzip:*)",
+      "Bash(cat:*)",
+      "Bash(__NEW_LINE__ echo -e \"\\n=== PlayerCombat 콜라이더 ===\")",
+      "Bash(__NEW_LINE__ echo -e \"\\n=== EnemyAI 콜라이더 ===\")",
+      "Bash(__NEW_LINE__ echo -e \"\\n=== 공격 범위 ===\")"
     ],
     "deny": [],
     "ask": []

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { T } from '@threlte/core';
-	import * as THREE from 'three';
+	import { getSharedTextures } from '$lib/textures/sharedTextures';
 
 	// Props
 	let {
@@ -36,239 +36,11 @@
 	// 스케일 계산
 	let scale = $derived(height / 1.8);
 
-	// ========== 프로시저럴 텍스처 생성 ==========
-	function createSkinTexture(baseColor: string): THREE.CanvasTexture {
-		const canvas = document.createElement('canvas');
-		canvas.width = 256;
-		canvas.height = 256;
-		const ctx = canvas.getContext('2d')!;
-
-		// 기본 색상
-		ctx.fillStyle = baseColor;
-		ctx.fillRect(0, 0, 256, 256);
-
-		// 피부/갑옷 텍스처 노이즈
-		for (let i = 0; i < 500; i++) {
-			const x = Math.random() * 256;
-			const y = Math.random() * 256;
-			const alpha = Math.random() * 0.08;
-			const shade = Math.random() > 0.5 ? 'rgba(255,255,255,' : 'rgba(0,0,0,';
-			ctx.fillStyle = shade + alpha + ')';
-			ctx.beginPath();
-			ctx.arc(x, y, Math.random() * 3 + 0.5, 0, Math.PI * 2);
-			ctx.fill();
-		}
-
-		// 미세한 라인 패턴 (갑옷 질감)
-		ctx.strokeStyle = 'rgba(0,0,0,0.05)';
-		ctx.lineWidth = 1;
-		for (let i = 0; i < 256; i += 16) {
-			ctx.beginPath();
-			ctx.moveTo(0, i);
-			ctx.lineTo(256, i);
-			ctx.stroke();
-		}
-
-		const texture = new THREE.CanvasTexture(canvas);
-		return texture;
-	}
-
-	function createArmorNormalMap(): THREE.CanvasTexture {
-		const canvas = document.createElement('canvas');
-		canvas.width = 256;
-		canvas.height = 256;
-		const ctx = canvas.getContext('2d')!;
-
-		// 기본 노말 (파란색)
-		ctx.fillStyle = '#8080ff';
-		ctx.fillRect(0, 0, 256, 256);
-
-		// 갑옷 판금 패턴
-		for (let y = 0; y < 256; y += 32) {
-			for (let x = 0; x < 256; x += 32) {
-				// 판금 경계
-				ctx.fillStyle = '#7070f0';
-				ctx.fillRect(x, y, 32, 2);
-				ctx.fillRect(x, y, 2, 32);
-
-				// 볼록한 중앙
-				const centerX = x + 16;
-				const centerY = y + 16;
-				const gradient = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, 12);
-				gradient.addColorStop(0, '#9090ff');
-				gradient.addColorStop(1, '#8080ff');
-				ctx.fillStyle = gradient;
-				ctx.beginPath();
-				ctx.arc(centerX, centerY, 12, 0, Math.PI * 2);
-				ctx.fill();
-			}
-		}
-
-		// 스크래치 마크
-		ctx.strokeStyle = '#7575f5';
-		ctx.lineWidth = 1;
-		for (let i = 0; i < 10; i++) {
-			const startX = Math.random() * 256;
-			const startY = Math.random() * 256;
-			ctx.beginPath();
-			ctx.moveTo(startX, startY);
-			ctx.lineTo(startX + (Math.random() - 0.5) * 40, startY + (Math.random() - 0.5) * 40);
-			ctx.stroke();
-		}
-
-		return new THREE.CanvasTexture(canvas);
-	}
-
-	function createMetalRoughnessMap(): THREE.CanvasTexture {
-		const canvas = document.createElement('canvas');
-		canvas.width = 256;
-		canvas.height = 256;
-		const ctx = canvas.getContext('2d')!;
-
-		// 기본 러프니스 (약간 광택)
-		ctx.fillStyle = '#666666';
-		ctx.fillRect(0, 0, 256, 256);
-
-		// 긁힌 자국 (높은 러프니스)
-		ctx.strokeStyle = '#999999';
-		ctx.lineWidth = 2;
-		for (let i = 0; i < 20; i++) {
-			const startX = Math.random() * 256;
-			const startY = Math.random() * 256;
-			ctx.beginPath();
-			ctx.moveTo(startX, startY);
-			ctx.lineTo(startX + (Math.random() - 0.5) * 50, startY + (Math.random() - 0.5) * 50);
-			ctx.stroke();
-		}
-
-		// 광택 부분 (낮은 러프니스)
-		for (let i = 0; i < 15; i++) {
-			ctx.fillStyle = '#444444';
-			ctx.beginPath();
-			ctx.arc(Math.random() * 256, Math.random() * 256, Math.random() * 15 + 5, 0, Math.PI * 2);
-			ctx.fill();
-		}
-
-		return new THREE.CanvasTexture(canvas);
-	}
-
-	// 검 블레이드 텍스처
-	function createBladeTexture(): THREE.CanvasTexture {
-		const canvas = document.createElement('canvas');
-		canvas.width = 64;
-		canvas.height = 256;
-		const ctx = canvas.getContext('2d')!;
-
-		// 그라데이션 베이스
-		const gradient = ctx.createLinearGradient(0, 0, 64, 0);
-		gradient.addColorStop(0, '#888888');
-		gradient.addColorStop(0.3, '#dddddd');
-		gradient.addColorStop(0.5, '#ffffff');
-		gradient.addColorStop(0.7, '#dddddd');
-		gradient.addColorStop(1, '#888888');
-		ctx.fillStyle = gradient;
-		ctx.fillRect(0, 0, 64, 256);
-
-		// 세로 라인 (칼날 결)
-		ctx.strokeStyle = 'rgba(255,255,255,0.3)';
-		ctx.lineWidth = 1;
-		ctx.beginPath();
-		ctx.moveTo(32, 0);
-		ctx.lineTo(32, 256);
-		ctx.stroke();
-
-		// 약간의 질감
-		for (let i = 0; i < 100; i++) {
-			const x = Math.random() * 64;
-			const y = Math.random() * 256;
-			ctx.fillStyle = `rgba(255,255,255,${Math.random() * 0.1})`;
-			ctx.fillRect(x, y, 1, Math.random() * 10 + 2);
-		}
-
-		return new THREE.CanvasTexture(canvas);
-	}
-
-	// 텍스처 생성 (한 번만)
-	const bodyTexture = createSkinTexture(color);
-	const accentTexture = createSkinTexture(accentColor);
-	const armorNormalMap = createArmorNormalMap();
-	const metalRoughnessMap = createMetalRoughnessMap();
-	const bladeTexture = createBladeTexture();
-
-	// ========== 물리 기반 스프링 시스템 ==========
-	type Vec3 = { x: number; y: number; z: number };
-	type JointState = {
-		current: Vec3;
-		velocity: Vec3;
-	};
-
-	// 스프링 파라미터 (관절별로 다르게 설정)
-	const SPRING_CONFIGS: Record<string, { stiffness: number; damping: number; mass: number }> = {
-		// 몸통: 무겁고 안정적
-		spine: { stiffness: 100, damping: 12, mass: 1.2 },
-		chest: { stiffness: 110, damping: 13, mass: 1.0 },
-		// 머리: 가볍고 빠르게 반응
-		neck: { stiffness: 150, damping: 15, mass: 0.5 },
-		// 팔: 중간 무게, 자연스러운 스윙
-		rightShoulder: { stiffness: 130, damping: 14, mass: 0.8 },
-		rightElbow: { stiffness: 140, damping: 14, mass: 0.6 },
-		rightWrist: { stiffness: 160, damping: 15, mass: 0.4 },
-		leftShoulder: { stiffness: 130, damping: 14, mass: 0.8 },
-		leftElbow: { stiffness: 140, damping: 14, mass: 0.6 },
-		leftWrist: { stiffness: 160, damping: 15, mass: 0.4 },
-		// 다리: 무겁고 안정적
-		rightHip: { stiffness: 90, damping: 11, mass: 1.3 },
-		rightKnee: { stiffness: 100, damping: 12, mass: 1.0 },
-		rightAnkle: { stiffness: 120, damping: 13, mass: 0.7 },
-		leftHip: { stiffness: 90, damping: 11, mass: 1.3 },
-		leftKnee: { stiffness: 100, damping: 12, mass: 1.0 },
-		leftAnkle: { stiffness: 120, damping: 13, mass: 0.7 }
-	};
-
-	const DEFAULT_SPRING_CONFIG = { stiffness: 120, damping: 14, mass: 1.0 };
-
-	// 스프링 물리 적용 함수
-	function springStep(current: number, target: number, velocity: number, dt: number, config = DEFAULT_SPRING_CONFIG): { value: number; velocity: number } {
-		const displacement = target - current;
-		const springForce = displacement * config.stiffness;
-		const dampingForce = -velocity * config.damping;
-		const acceleration = (springForce + dampingForce) / config.mass;
-
-		const newVelocity = velocity + acceleration * dt;
-		const newValue = current + newVelocity * dt;
-
-		return { value: newValue, velocity: newVelocity };
-	}
-
-	// 관절 스프링 상태
-	let jointSprings = $state<Record<string, JointState>>({
-		spine: { current: { x: 0, y: 0, z: 0 }, velocity: { x: 0, y: 0, z: 0 } },
-		chest: { current: { x: 0, y: 0, z: 0 }, velocity: { x: 0, y: 0, z: 0 } },
-		neck: { current: { x: 0, y: 0, z: 0 }, velocity: { x: 0, y: 0, z: 0 } },
-		rightShoulder: { current: { x: 0.1, y: 0, z: -0.35 }, velocity: { x: 0, y: 0, z: 0 } },
-		rightElbow: { current: { x: 0.15, y: 0, z: 0 }, velocity: { x: 0, y: 0, z: 0 } },
-		rightWrist: { current: { x: 0, y: 0, z: 0 }, velocity: { x: 0, y: 0, z: 0 } },
-		leftShoulder: { current: { x: 0.1, y: 0, z: 0.35 }, velocity: { x: 0, y: 0, z: 0 } },
-		leftElbow: { current: { x: 0.15, y: 0, z: 0 }, velocity: { x: 0, y: 0, z: 0 } },
-		leftWrist: { current: { x: 0, y: 0, z: 0 }, velocity: { x: 0, y: 0, z: 0 } },
-		rightHip: { current: { x: 0, y: 0, z: -0.02 }, velocity: { x: 0, y: 0, z: 0 } },
-		rightKnee: { current: { x: 0.02, y: 0, z: 0 }, velocity: { x: 0, y: 0, z: 0 } },
-		rightAnkle: { current: { x: 0, y: 0, z: 0 }, velocity: { x: 0, y: 0, z: 0 } },
-		leftHip: { current: { x: 0, y: 0, z: 0.02 }, velocity: { x: 0, y: 0, z: 0 } },
-		leftKnee: { current: { x: 0.02, y: 0, z: 0 }, velocity: { x: 0, y: 0, z: 0 } },
-		leftAnkle: { current: { x: 0, y: 0, z: 0 }, velocity: { x: 0, y: 0, z: 0 } }
-	});
-
-	// 이전 시간 저장
-	let lastTime = $state(0);
+	// 캐싱된 공유 텍스처 사용
+	const { bodyTexture, accentTexture, armorNormalMap, metalRoughnessMap, bladeTexture } =
+		getSharedTextures(color, accentColor);
 
 	// 이징 함수들
-	function easeOutElastic(x: number): number {
-		const c4 = (2 * Math.PI) / 3;
-		return x === 0 ? 0 : x === 1 ? 1 :
-			Math.pow(2, -10 * x) * Math.sin((x * 10 - 0.75) * c4) + 1;
-	}
-
 	function easeOutBack(x: number): number {
 		const c1 = 1.70158;
 		const c3 = c1 + 1;
@@ -283,32 +55,24 @@
 		return 1 - (1 - x) * (1 - x);
 	}
 
+	function easeOutElastic(x: number): number {
+		const c4 = (2 * Math.PI) / 3;
+		return x === 0 ? 0 : x === 1 ? 1 :
+			Math.pow(2, -10 * x) * Math.sin((x * 10 - 0.75) * c4) + 1;
+	}
+
 	// 부드러운 보간 함수
 	function lerp(a: number, b: number, t: number): number {
 		return a + (b - a) * t;
 	}
 
-	// 이차 모션 (관성/지연) 상태
-	let secondaryMotion = $state({
-		headBob: 0,
-		shoulderLag: 0,
-		weaponSwing: 0,
-		breathPhase: 0
-	});
-
-	// 타겟 포즈 계산 (목표 위치) - 검술 기반
-	function calculateTargetPose() {
-		// 이차 모션 업데이트
-		secondaryMotion.breathPhase += 0.016; // ~60fps 가정
+	// 관절 포즈 계산 (직접 $derived로 계산)
+	let joints = $derived.by(() => {
 		const breathIntensity = animationState === 'idle' ? 1.0 :
 			(animationState === 'walk' ? 0.7 : 0.4);
 
-		// 호흡 - 더 복잡한 패턴 (복식호흡 시뮬레이션)
-		const breathe = (
-			Math.sin(time * 2) * 0.012 +
-			Math.sin(time * 4) * 0.004 +
-			Math.sin(time * 0.5) * 0.008
-		) * breathIntensity;
+		// 호흡
+		const breathe = Math.sin(time * 2) * 0.01 * breathIntensity;
 
 		// 미세한 체중 이동
 		const weightShift = Math.sin(time * 0.8) * 0.005;
@@ -349,42 +113,96 @@
 			leftAnkle: { x: -weightShift * 0.1, y: 0, z: 0 }
 		};
 
-		// ========== 걷기: 검술 스타일 이동 (스리아시) ==========
+		// ========== 걷기/달리기: 자연스러운 인간 보행 ==========
 		if (animationState === 'walk' || animationState === 'run') {
-			const intensity = animationState === 'run' ? 1.0 : 0.6;
+			const isRunning = animationState === 'run';
+			const intensity = isRunning ? 1.2 : 0.7;
 			const cycle = walkCycle;
-			const legSwing = Math.sin(cycle);
-			const legSwingOffset = Math.sin(cycle + Math.PI * 0.25); // 위상 차이
 
-			// 다리: 더 자연스러운 걸음 (발 들기/내리기 포함)
-			pose.rightHip.x = 0.05 + legSwing * 0.28 * intensity;
-			pose.leftHip.x = -0.1 - legSwing * 0.28 * intensity;
-			pose.rightKnee.x = 0.15 + Math.max(0, -legSwing) * 0.25 * intensity;
-			pose.leftKnee.x = 0.2 + Math.max(0, legSwing) * 0.25 * intensity;
+			// 기본 사이클 (0~2π)
+			const sinCycle = Math.sin(cycle);
+			const cosCycle = Math.cos(cycle);
 
-			// 발목 굽힘 (발차기 느낌)
-			pose.rightAnkle.x = -legSwing * 0.1 * intensity;
-			pose.leftAnkle.x = legSwing * 0.1 * intensity;
+			// ===== 다리 움직임 (인간 보행의 핵심) =====
+			// 오른다리: cycle=0일 때 앞으로 뻗음, cycle=π일 때 뒤로
+			// 왼다리: 반대 위상 (cycle+π)
 
-			// 상체: 자연스러운 반대 트위스트
-			pose.chest.y = legSwing * 0.04 * intensity;
-			pose.spine.y = -legSwing * 0.03 * intensity; // 반대 방향 트위스트
-			pose.spine.x = 0.08 + Math.abs(legSwing) * 0.025 * intensity;
+			// 힙 굴곡/신전 (앞뒤 스윙)
+			const rightLegPhase = cycle;
+			const leftLegPhase = cycle + Math.PI;
 
-			// 머리 안정화 (상체 반대로 보정)
-			pose.neck.y = legSwing * 0.02 * intensity;
+			// 스윙 단계 (발이 공중에 있을 때)와 지지 단계 분리
+			const rightSwing = Math.sin(rightLegPhase);
+			const leftSwing = Math.sin(leftLegPhase);
 
-			// 팔 스윙 (다리 반대)
-			pose.rightShoulder.x = 0.3 - legSwing * 0.15 * intensity;
-			pose.leftShoulder.x = 0.2 + legSwing * 0.12 * intensity;
+			// 힙 굴곡 (다리를 앞으로 들어올릴 때 양수)
+			pose.rightHip.x = rightSwing * 0.35 * intensity;
+			pose.leftHip.x = leftSwing * 0.35 * intensity;
 
-			// 어깨 상하 움직임 (걸을 때 자연스러운 밥)
-			const verticalBob = Math.abs(Math.sin(cycle * 2)) * 0.02 * intensity;
-			pose.spine.x += verticalBob;
+			// 무릎 굽힘: 스윙 단계에서 더 굽힘 (발이 지면에 걸리지 않도록)
+			// 발이 앞으로 갈 때(swing phase) 무릎이 굽혀짐
+			const rightKneeBend = Math.max(0, Math.sin(rightLegPhase + 0.5)) * 0.6;
+			const leftKneeBend = Math.max(0, Math.sin(leftLegPhase + 0.5)) * 0.6;
+			pose.rightKnee.x = 0.1 + rightKneeBend * intensity;
+			pose.leftKnee.x = 0.1 + leftKneeBend * intensity;
 
-			// 힙 좌우 흔들림
-			pose.rightHip.z = -0.08 + legSwingOffset * 0.03 * intensity;
-			pose.leftHip.z = 0.08 - legSwingOffset * 0.03 * intensity;
+			// 발목: 발 들어올릴 때 발끝 올림, 착지 시 발뒤꿈치부터
+			const rightAnkleFlex = Math.sin(rightLegPhase + 0.8) * 0.25;
+			const leftAnkleFlex = Math.sin(leftLegPhase + 0.8) * 0.25;
+			pose.rightAnkle.x = rightAnkleFlex * intensity;
+			pose.leftAnkle.x = leftAnkleFlex * intensity;
+
+			// ===== 골반 움직임 =====
+			// 골반 회전 (걸을 때 앞으로 나가는 다리 쪽으로 회전)
+			pose.spine.y = sinCycle * 0.08 * intensity;
+
+			// 골반 기울기 (지지하는 다리 쪽으로 살짝 기울어짐)
+			const pelvisTilt = cosCycle * 0.04 * intensity;
+			pose.spine.z = pelvisTilt;
+
+			// 수직 바운스 (양발이 지면에 닿을 때 = cycle의 2배 주기)
+			const verticalBounce = Math.abs(Math.sin(cycle * 2)) * 0.03 * intensity;
+			pose.spine.x = 0.05 + verticalBounce;
+
+			// ===== 상체 카운터 로테이션 =====
+			// 상체는 골반과 반대 방향으로 회전 (균형 유지)
+			pose.chest.y = -sinCycle * 0.06 * intensity;
+			pose.chest.x = 0.03 + verticalBounce * 0.5;
+
+			// 머리 안정화 (상체 회전 상쇄)
+			pose.neck.y = sinCycle * 0.03 * intensity;
+
+			// ===== 팔 스윙 (다리와 반대) =====
+			// 오른팔은 왼다리와 같은 위상, 왼팔은 오른다리와 같은 위상
+			const rightArmSwing = Math.sin(leftLegPhase); // 왼다리와 동기화
+			const leftArmSwing = Math.sin(rightLegPhase); // 오른다리와 동기화
+
+			// 어깨 굴곡/신전
+			pose.rightShoulder.x = 0.2 + rightArmSwing * 0.25 * intensity;
+			pose.leftShoulder.x = 0.15 + leftArmSwing * 0.2 * intensity;
+
+			// 팔꿈치: 팔이 뒤로 갈 때 살짝 더 굽힘
+			pose.rightElbow.x = 0.3 + Math.max(0, -rightArmSwing) * 0.2 * intensity;
+			pose.leftElbow.x = 0.5 + Math.max(0, -leftArmSwing) * 0.15 * intensity;
+
+			// 달릴 때 추가 동작
+			if (isRunning) {
+				// 더 높은 무릎 들어올리기
+				pose.rightHip.x += Math.max(0, rightSwing) * 0.15;
+				pose.leftHip.x += Math.max(0, leftSwing) * 0.15;
+
+				// 더 강한 팔 스윙
+				pose.rightShoulder.x += rightArmSwing * 0.1;
+				pose.leftShoulder.x += leftArmSwing * 0.08;
+
+				// 몸 앞으로 기울임
+				pose.spine.x += 0.1;
+				pose.chest.x += 0.08;
+			}
+
+			// 힙 좌우 움직임 (체중 이동)
+			pose.rightHip.z = -0.08 + cosCycle * 0.04 * intensity;
+			pose.leftHip.z = 0.08 - cosCycle * 0.04 * intensity;
 		}
 
 		// ========== 약공격: 빠른 찌르기 (츠키) ==========
@@ -746,60 +564,6 @@
 		pose.spine.x += bodyTilt;
 
 		return pose;
-	}
-
-	// $effect로 스프링 물리 업데이트
-	$effect(() => {
-		const targetPose = calculateTargetPose();
-		const dt = Math.min(time - lastTime, 0.05); // 최대 50ms로 제한
-		lastTime = time;
-
-		if (dt <= 0) return;
-
-		// 각 관절에 스프링 물리 적용
-		const jointNames = Object.keys(jointSprings) as Array<keyof typeof jointSprings>;
-
-		for (const name of jointNames) {
-			const joint = jointSprings[name];
-			const target = targetPose[name as keyof typeof targetPose];
-			const config = SPRING_CONFIGS[name] || DEFAULT_SPRING_CONFIG;
-
-			if (!target) continue;
-
-			// X축
-			const xResult = springStep(joint.current.x, target.x, joint.velocity.x, dt, config);
-			joint.current.x = xResult.value;
-			joint.velocity.x = xResult.velocity;
-
-			// Y축
-			const yResult = springStep(joint.current.y, target.y, joint.velocity.y, dt, config);
-			joint.current.y = yResult.value;
-			joint.velocity.y = yResult.velocity;
-
-			// Z축
-			const zResult = springStep(joint.current.z, target.z, joint.velocity.z, dt, config);
-			joint.current.z = zResult.value;
-			joint.velocity.z = zResult.velocity;
-		}
-	});
-
-	// 최종 관절 값 (스프링 적용된 값)
-	let joints = $derived({
-		spine: jointSprings.spine.current,
-		chest: jointSprings.chest.current,
-		neck: jointSprings.neck.current,
-		rightShoulder: jointSprings.rightShoulder.current,
-		rightElbow: jointSprings.rightElbow.current,
-		rightWrist: jointSprings.rightWrist.current,
-		leftShoulder: jointSprings.leftShoulder.current,
-		leftElbow: jointSprings.leftElbow.current,
-		leftWrist: jointSprings.leftWrist.current,
-		rightHip: jointSprings.rightHip.current,
-		rightKnee: jointSprings.rightKnee.current,
-		rightAnkle: jointSprings.rightAnkle.current,
-		leftHip: jointSprings.leftHip.current,
-		leftKnee: jointSprings.leftKnee.current,
-		leftAnkle: jointSprings.leftAnkle.current
 	});
 
 	// 색상 계산

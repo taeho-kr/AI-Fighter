@@ -21,7 +21,8 @@
 
 	// 3인칭 카메라 설정
 	const thirdPersonOffset = new THREE.Vector3(0, 4, 8);
-	const firstPersonOffset = new THREE.Vector3(0, 1.5, 0);
+	const firstPersonHeight = 1.7; // 눈 높이
+	const firstPersonForward = 0.05; // 머리 앞쪽으로 약간 이동
 
 	const cameraSmoothness = 0.1;
 
@@ -60,14 +61,22 @@
 			targetCameraPos = targetPosition.clone().add(rotatedOffset);
 			lookAtPos = targetPosition.clone().add(new THREE.Vector3(0, 1, 0));
 		} else {
-			// 1인칭: 플레이어 머리 위치
-			targetCameraPos = targetPosition.clone().add(firstPersonOffset);
+			// 1인칭: 플레이어 머리 정면 위치
+			// 캐릭터가 바라보는 방향 (targetRotation)을 기준으로 카메라 위치 설정
+			// 앞쪽(+)으로 이동하려면 sin/cos에 음수를 곱해야 함 (Three.js 좌표계)
+			const forwardX = -Math.sin(targetRotation) * firstPersonForward;
+			const forwardZ = -Math.cos(targetRotation) * firstPersonForward;
 
-			// 마우스 방향으로 바라보기
+			targetCameraPos = targetPosition.clone().add(
+				new THREE.Vector3(forwardX, firstPersonHeight, forwardZ)
+			);
+
+			// 캐릭터가 바라보는 방향으로 시선 설정
+			// 마우스 Y로 위아래 시선 조절 가능
 			const lookDir = new THREE.Vector3(
-				Math.sin(mouseX),
+				-Math.sin(targetRotation),
 				-mouseY,
-				-Math.cos(mouseX)
+				-Math.cos(targetRotation)
 			);
 			lookAtPos = targetCameraPos.clone().add(lookDir.multiplyScalar(10));
 		}

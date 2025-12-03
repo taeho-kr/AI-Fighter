@@ -15,6 +15,10 @@
 		type AIAction, type DQNAgent
 	} from '$lib/ai/DQN';
 	import HumanoidModel from './HumanoidModel.svelte';
+	import CharacterModel from './CharacterModel.svelte';
+
+	// 3D 모델 사용 여부 (true = GLB 모델, false = 프로시저럴 모델)
+	const USE_3D_MODEL = true;
 
 	// Props
 	let {
@@ -60,6 +64,8 @@
 		dqnAgent = await getDQNAgent();
 		updateAIStats();
 	});
+
+	const ARENA_RADIUS = 9.5; // 아레나 반경 (벽 안쪽)
 
 	// AI 스탯 (레벨에 따라 증가)
 	const baseStats = {
@@ -445,7 +451,7 @@
 	// 위치 초기화 (새 라운드 시작 시)
 	export function resetPosition() {
 		if (!rigidBody) return;
-		rigidBody.setTranslation({ x: 0, y: 1, z: -8 }, true);
+		rigidBody.setTranslation({ x: 0, y: 2, z: -5 }, true);
 		rigidBody.setLinvel({ x: 0, y: 0, z: 0 }, true);
 
 		// 상태 초기화
@@ -507,6 +513,40 @@
 			moveZ = -toPlayer.z * currentStats.speed * 0.5;
 		}
 
+		// 아레나 경계 체크 - 속도 설정 전에 위치 확인
+		const nextX = pos.x + moveX * 0.016; // 약 1프레임 후 위치 예측
+		const nextZ = pos.z + moveZ * 0.016;
+		const nextDistFromCenter = Math.sqrt(nextX * nextX + nextZ * nextZ);
+
+		// 경계를 벗어나려 하면 속도 조정
+		if (nextDistFromCenter > ARENA_RADIUS) {
+			// 중심 방향 벡터
+			const toCenter = { x: -pos.x, z: -pos.z };
+			const toCenterLen = Math.sqrt(toCenter.x * toCenter.x + toCenter.z * toCenter.z);
+			if (toCenterLen > 0) {
+				toCenter.x /= toCenterLen;
+				toCenter.z /= toCenterLen;
+			}
+
+			// 현재 속도와 중심 방향의 내적
+			const dot = moveX * toCenter.x + moveZ * toCenter.z;
+
+			// 바깥으로 나가려는 경우에만 제한
+			if (dot < 0) {
+				// 바깥 방향 성분 제거
+				moveX = moveX - (-toCenter.x) * (-dot);
+				moveZ = moveZ - (-toCenter.z) * (-dot);
+
+				// 이미 경계를 벗어났으면 중심으로 밀어냄
+				const currentDist = Math.sqrt(pos.x * pos.x + pos.z * pos.z);
+				if (currentDist > ARENA_RADIUS) {
+					const pushBack = 3;
+					moveX += toCenter.x * pushBack;
+					moveZ += toCenter.z * pushBack;
+				}
+			}
+		}
+
 		rigidBody.setLinvel({ x: moveX, y: velocity.y, z: moveZ }, true);
 
 		// 플레이어 방향으로 회전
@@ -517,7 +557,7 @@
 
 		// 낙하 리셋
 		if (pos.y < -10) {
-			rigidBody.setTranslation({ x: 0, y: 2, z: -8 }, true);
+			rigidBody.setTranslation({ x: 0, y: 2, z: -5 }, true);
 			rigidBody.setLinvel({ x: 0, y: 0, z: 0 }, true);
 		}
 	});
@@ -532,25 +572,39 @@
 	});
 </script>
 
-<RigidBody bind:rigidBody position={[0, 1, -8]} linearDamping={5} angularDamping={5} lockRotations enabledRotations={[false, false, false]}>
+<RigidBody bind:rigidBody position={[0, 2, -5]} linearDamping={5} angularDamping={5} lockRotations enabledRotations={[false, false, false]}>
 	<Collider shape="capsule" args={[0.5, 0.4]} mass={1} friction={1} restitution={0} />
 
 	<T.Group rotation.y={lookAngle}>
-		<!-- 휴머노이드 모델 (플레이어와 동일, 색상만 다름) -->
-		<HumanoidModel
-			color={isStunned ? '#888888' : currentState === 'attacking' ? '#ff4444' : '#e94560'}
-			accentColor={isStunned ? '#666666' : '#b83050'}
-			height={1.8}
-			animationState={currentAnimState}
-			animationProgress={attackAnimProgress}
-			walkCycle={walkCycle}
-			hasWeapon={true}
-			hasShield={true}
-			weaponType="sword"
-			isHit={false}
-			isStunned={isStunned}
-			time={animationTime}
-		/>
+		<!-- 캐릭터 모델 -->
+		{#if USE_3D_MODEL}
+			<!-- RigidBody 로컬 좌표에서 캡슐 콜라이더 바닥은 y = -0.9 -->
+			<CharacterModel
+				modelPath="/models/barbarian.glb"
+				scale={1}
+				position={[0, -0.9, 0]}
+				animationState={currentAnimState}
+				isHit={false}
+				isCharging={false}
+				chargeIntensity={0}
+				tint={isStunned ? '#888888' : currentState === 'attacking' ? '#ff4444' : null}
+			/>
+		{:else}
+			<HumanoidModel
+				color={isStunned ? '#888888' : currentState === 'attacking' ? '#ff4444' : '#e94560'}
+				accentColor={isStunned ? '#666666' : '#b83050'}
+				height={1.8}
+				animationState={currentAnimState}
+				animationProgress={attackAnimProgress}
+				walkCycle={walkCycle}
+				hasWeapon={true}
+				hasShield={true}
+				weaponType="sword"
+				isHit={false}
+				isStunned={isStunned}
+				time={animationTime}
+			/>
+		{/if}
 
 		<!-- 공격 시 이펙트 -->
 		{#if currentState === 'attacking'}
@@ -570,46 +624,100 @@
 			</T.Mesh>
 		{/if}
 
-		<!-- 스턴 이펙트 (머리 위 혼란 표시) -->
+		<!-- 스턴 이펙트 (강화된 표현) -->
 		{#if isStunned}
-			<T.Group position={[0, 2.1, 0]}>
-				<!-- 회전하는 별들 -->
-				{#each [0, 1, 2, 3, 4, 5] as i}
-					<T.Group rotation.y={animationTime * 3 + i * Math.PI / 3}>
-						<T.Mesh
-							position={[0.35, Math.sin(animationTime * 4 + i) * 0.08, 0]}
-						>
-							<T.OctahedronGeometry args={[0.07]} />
-							<T.MeshBasicMaterial color={i % 2 === 0 ? '#ffff00' : '#ffaa00'} />
+			{@const pulseIntensity = 0.5 + Math.sin(animationTime * 10) * 0.3}
+
+			<!-- 전신 스턴 오라 (바닥에서 위로) -->
+			<T.Mesh position={[0, 1, 0]}>
+				<T.CylinderGeometry args={[0.8, 0.8, 2, 16, 1, true]} />
+				<T.MeshBasicMaterial
+					color="#ffff00"
+					transparent
+					opacity={0.15 + pulseIntensity * 0.1}
+					side={2}
+				/>
+			</T.Mesh>
+
+			<!-- 번쩍이는 외곽선 -->
+			<T.Mesh position={[0, 1, 0]}>
+				<T.CylinderGeometry args={[1, 1, 2.2, 16, 1, true]} />
+				<T.MeshBasicMaterial
+					color="#ffffff"
+					transparent
+					opacity={pulseIntensity * 0.3}
+					side={2}
+				/>
+			</T.Mesh>
+
+			<!-- 머리 위 스턴 표시 -->
+			<T.Group position={[0, 2.5, 0]}>
+				<!-- 큰 회전하는 별들 -->
+				{#each [0, 1, 2, 3, 4, 5, 6, 7] as i}
+					<T.Group rotation.y={animationTime * 4 + i * Math.PI / 4}>
+						<T.Mesh position={[0.5, Math.sin(animationTime * 5 + i) * 0.15, 0]}>
+							<T.OctahedronGeometry args={[0.12]} />
+							<T.MeshBasicMaterial color={i % 2 === 0 ? '#ffff00' : '#ff8800'} />
 						</T.Mesh>
 					</T.Group>
 				{/each}
 
-				<!-- 느낌표 표시 -->
-				<T.Group position={[0, 0.25, 0]}>
-					<T.Mesh rotation.z={Math.sin(animationTime * 6) * 0.2}>
-						<T.CylinderGeometry args={[0.035, 0.05, 0.2, 8]} />
-						<T.MeshBasicMaterial color="#ff4444" />
-					</T.Mesh>
-					<T.Mesh position={[0, -0.18, 0]}>
-						<T.SphereGeometry args={[0.04, 8, 8]} />
-						<T.MeshBasicMaterial color="#ff4444" />
-					</T.Mesh>
-				</T.Group>
-
-				<!-- 소용돌이 링 -->
-				<T.Mesh rotation.x={Math.PI / 2} rotation.z={animationTime * 5}>
-					<T.TorusGeometry args={[0.3, 0.015, 8, 32]} />
-					<T.MeshBasicMaterial color="#ffff88" transparent opacity={0.6} />
+				<!-- 중앙 스턴 아이콘 (소용돌이) -->
+				<T.Mesh rotation.x={Math.PI / 2} rotation.z={animationTime * 8}>
+					<T.TorusGeometry args={[0.25, 0.05, 8, 32]} />
+					<T.MeshBasicMaterial color="#ffff00" />
 				</T.Mesh>
-				<T.Mesh rotation.x={Math.PI / 2} rotation.z={-animationTime * 4}>
-					<T.TorusGeometry args={[0.4, 0.012, 8, 32]} />
-					<T.MeshBasicMaterial color="#ffaa44" transparent opacity={0.4} />
+				<T.Mesh rotation.x={Math.PI / 2} rotation.z={-animationTime * 6}>
+					<T.TorusGeometry args={[0.4, 0.04, 8, 32]} />
+					<T.MeshBasicMaterial color="#ffaa00" transparent opacity={0.8} />
+				</T.Mesh>
+				<T.Mesh rotation.x={Math.PI / 2} rotation.z={animationTime * 4}>
+					<T.TorusGeometry args={[0.55, 0.03, 8, 32]} />
+					<T.MeshBasicMaterial color="#ff8800" transparent opacity={0.5} />
 				</T.Mesh>
 			</T.Group>
 
-			<!-- 스턴 상태 빛 -->
-			<T.PointLight position={[0, 2.2, 0]} intensity={3} color="#ffff00" distance={2.5} />
+			<!-- 바닥 충격파 링 -->
+			<T.Mesh position={[0, 0.05, 0]} rotation.x={-Math.PI / 2}>
+				<T.RingGeometry args={[0.8 + pulseIntensity * 0.5, 1 + pulseIntensity * 0.5, 32]} />
+				<T.MeshBasicMaterial color="#ffff00" transparent opacity={0.4} side={2} />
+			</T.Mesh>
+			<T.Mesh position={[0, 0.05, 0]} rotation.x={-Math.PI / 2}>
+				<T.RingGeometry args={[1.2 + pulseIntensity * 0.3, 1.4 + pulseIntensity * 0.3, 32]} />
+				<T.MeshBasicMaterial color="#ffaa00" transparent opacity={0.25} side={2} />
+			</T.Mesh>
+
+			<!-- 전기 스파크 이펙트 -->
+			{#each [0, 1, 2, 3] as i}
+				{@const sparkAngle = animationTime * 12 + i * Math.PI / 2}
+				{@const sparkHeight = 0.5 + Math.sin(animationTime * 8 + i * 2) * 0.8}
+				<T.Mesh position={[Math.cos(sparkAngle) * 0.4, sparkHeight, Math.sin(sparkAngle) * 0.4]}>
+					<T.SphereGeometry args={[0.08, 6, 6]} />
+					<T.MeshBasicMaterial color="#ffffff" />
+				</T.Mesh>
+				<!-- 스파크에서 뻗어나가는 선 -->
+				<T.Mesh
+					position={[Math.cos(sparkAngle) * 0.6, sparkHeight + 0.1, Math.sin(sparkAngle) * 0.6]}
+					rotation.z={sparkAngle}
+				>
+					<T.BoxGeometry args={[0.3, 0.02, 0.02]} />
+					<T.MeshBasicMaterial color="#ffff88" />
+				</T.Mesh>
+			{/each}
+
+			<!-- 강한 스턴 조명 -->
+			<T.PointLight
+				position={[0, 1.5, 0]}
+				intensity={15 + pulseIntensity * 10}
+				color="#ffff00"
+				distance={5}
+			/>
+			<T.PointLight
+				position={[0, 2.5, 0]}
+				intensity={8}
+				color="#ffffff"
+				distance={3}
+			/>
 		{/if}
 	</T.Group>
 </RigidBody>

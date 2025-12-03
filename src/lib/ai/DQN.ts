@@ -419,6 +419,16 @@ export class DQNAgent {
 			this.model = await tf.loadLayersModel('indexeddb://ai-fighter-dqn');
 			this.targetModel = await tf.loadLayersModel('indexeddb://ai-fighter-dqn');
 
+			// 로드 후 컴파일 (학습을 위해 필요)
+			this.model.compile({
+				optimizer: tf.train.adam(this.config.learningRate),
+				loss: 'meanSquaredError'
+			});
+			this.targetModel.compile({
+				optimizer: tf.train.adam(this.config.learningRate),
+				loss: 'meanSquaredError'
+			});
+
 			// 메타데이터 로드
 			const metaStr = localStorage.getItem('ai-fighter-dqn-meta');
 			if (metaStr) {
