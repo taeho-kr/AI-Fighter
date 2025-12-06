@@ -16,6 +16,12 @@
 	} from '$lib/ai/DQN';
 	import HumanoidModel from './HumanoidModel.svelte';
 	import CharacterModel from './CharacterModel.svelte';
+	import { playSFX } from '$lib/audio/AudioManager';
+	import {
+		MELEE_ATTACK_RANGE, HEAVY_ATTACK_RANGE, CHASE_START_DISTANCE,
+		ENEMY_BASE_SPEED, ARENA_RADIUS as COMBAT_ARENA_RADIUS,
+		LIGHT_ATTACK_DAMAGE, HEAVY_ATTACK_DAMAGE
+	} from '$lib/combat/constants';
 
 	// 3D 모델 사용 여부 (true = GLB 모델, false = 프로시저럴 모델)
 	const USE_3D_MODEL = true;
@@ -65,14 +71,15 @@
 		updateAIStats();
 	});
 
-	const ARENA_RADIUS = 9.5; // 아레나 반경 (벽 안쪽)
+	const ARENA_RADIUS = COMBAT_ARENA_RADIUS;
 
-	// AI 스탯 (레벨에 따라 증가)
+	// AI 스탯 (레벨에 따라 증가) - 캐릭터 비례 기반
 	const baseStats = {
-		speed: 3,
-		attackRange: 2.5,
-		lightDamage: 10,
-		heavyDamage: 25,
+		speed: ENEMY_BASE_SPEED,
+		attackRange: MELEE_ATTACK_RANGE,       // 약 3.24m (캐릭터 높이 x 1.8)
+		heavyAttackRange: HEAVY_ATTACK_RANGE,  // 약 3.56m
+		lightDamage: LIGHT_ATTACK_DAMAGE,
+		heavyDamage: HEAVY_ATTACK_DAMAGE,
 		aggressiveness: 0.5, // 0-1, 공격 빈도
 		predictionAccuracy: 0.3 // 0-1, 예측 정확도
 	};
@@ -81,6 +88,7 @@
 	let currentStats = $derived({
 		speed: baseStats.speed + (get(bossLevel) - 1) * 0.5,
 		attackRange: baseStats.attackRange,
+		heavyAttackRange: baseStats.heavyAttackRange,
 		lightDamage: baseStats.lightDamage + (get(bossLevel) - 1) * 5,
 		heavyDamage: baseStats.heavyDamage + (get(bossLevel) - 1) * 10,
 		aggressiveness: Math.min(0.9, baseStats.aggressiveness + (get(bossLevel) - 1) * 0.1),
@@ -334,6 +342,9 @@
 		attackType = type;
 		enemyState.set('attacking');
 
+		// 사운드 재생
+		playSFX('enemy_attack');
+
 		// 애니메이션 시작
 		attackAnimStartTime = Date.now();
 		attackAnimProgress = 0;
@@ -385,6 +396,9 @@
 		enemyState.set('stunned');
 		attackType = null;
 
+		// 사운드 재생
+		playSFX('enemy_stunned');
+
 		// DQN: 패링당함 = 큰 페널티
 		if (dqnAgent) {
 			pendingReward += dqnAgent.getReward('gotParried');
@@ -394,6 +408,9 @@
 	// 데미지 처리
 	export function takeDamage(amount: number) {
 		enemyHealth.update(h => Math.max(0, h - amount));
+
+		// 사운드 재생
+		playSFX('enemy_hit');
 
 		// DQN: 데미지 받음 = 페널티
 		if (dqnAgent) {
@@ -572,8 +589,14 @@
 	});
 </script>
 
-<RigidBody bind:rigidBody position={[0, 2, -5]} linearDamping={5} angularDamping={5} lockRotations enabledRotations={[false, false, false]}>
-	<Collider shape="capsule" args={[0.5, 0.4]} mass={1} friction={1} restitution={0} />
+<RigidBody bind:rigidBody position={[0, 1, -5]} linearDamping={5} angularDamping={5} lockRotations enabledRotations={[false, false, false]}>
+	<Collider
+		shape="capsule"
+		args={[0.5, 0.4]}
+		mass={1}
+		friction={1}
+		restitution={0}
+	/>
 
 	<T.Group rotation.y={lookAngle}>
 		<!-- 캐릭터 모델 -->

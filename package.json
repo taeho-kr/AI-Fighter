@@ -1,12 +1,18 @@
 {
-  "name": "threlte-game",
+  "name": "ai-fighter",
   "version": "1.0.0",
   "private": true,
   "type": "module",
   "main": "dist-electron/main.js",
+  "description": "AI Adaptive Combat Game - Fight against an AI that learns your patterns",
+  "author": "Your Name",
+  "license": "MIT",
   "scripts": {
     "dev": "vite",
     "build": "vite build && electron-builder",
+    "build:win": "vite build && electron-builder --win",
+    "build:mac": "vite build && electron-builder --mac",
+    "build:linux": "vite build && electron-builder --linux",
     "preview": "vite preview",
     "electron:dev": "vite",
     "check": "svelte-check --tsconfig ./tsconfig.json"
@@ -33,23 +39,61 @@
     "vite-plugin-electron-renderer": "^0.14.6"
   },
   "build": {
-    "appId": "com.threlte.game",
-    "productName": "Threlte Game",
+    "appId": "com.aifighter.game",
+    "productName": "AI Fighter",
     "directories": {
       "output": "release"
     },
     "files": [
       "dist/**/*",
-      "dist-electron/**/*"
+      "dist-electron/**/*",
+      "steam_appid.txt"
+    ],
+    "extraResources": [
+      {
+        "from": "steam_appid.txt",
+        "to": "."
+      }
     ],
     "win": {
-      "target": "nsis"
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "public/icon.ico",
+      "artifactName": "${productName}-${version}-${os}-${arch}.${ext}"
     },
     "mac": {
-      "target": "dmg"
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["x64", "arm64"]
+        }
+      ],
+      "icon": "public/icon.icns",
+      "category": "public.app-category.games",
+      "artifactName": "${productName}-${version}-${os}-${arch}.${ext}"
     },
     "linux": {
-      "target": "AppImage"
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "public/icon.png",
+      "category": "Game",
+      "artifactName": "${productName}-${version}-${os}-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "AI Fighter"
     }
   }
 }

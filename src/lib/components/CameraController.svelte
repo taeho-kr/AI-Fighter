@@ -7,7 +7,13 @@
 	let {
 		targetPosition = new THREE.Vector3(),
 		targetRotation = 0,
-		onCameraRotationUpdate = (rot: number) => {}
+		onCameraRotationUpdate = (_rot: number) => {},
+		shakeIntensity = 0
+	}: {
+		targetPosition?: THREE.Vector3;
+		targetRotation?: number;
+		onCameraRotationUpdate?: (rot: number) => void;
+		shakeIntensity?: number;
 	} = $props();
 
 	let camera: THREE.PerspectiveCamera;
@@ -85,7 +91,14 @@
 		currentPosition.lerp(targetCameraPos, cameraSmoothness);
 		currentLookAt.lerp(lookAtPos, cameraSmoothness);
 
-		camera.position.copy(currentPosition);
+		// 화면 흔들림 적용
+		const shakeOffset = new THREE.Vector3(
+			(Math.random() - 0.5) * 2 * shakeIntensity,
+			(Math.random() - 0.5) * 2 * shakeIntensity,
+			(Math.random() - 0.5) * 2 * shakeIntensity
+		);
+
+		camera.position.copy(currentPosition).add(shakeOffset);
 		camera.lookAt(currentLookAt);
 	});
 </script>

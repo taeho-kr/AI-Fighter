@@ -11,14 +11,19 @@
 	import { onMount } from 'svelte';
 	import HumanoidModel from './HumanoidModel.svelte';
 	import CharacterModel from './CharacterModel.svelte';
+	import { playSFX } from '$lib/audio/AudioManager';
+	import {
+		PLAYER_WALK_SPEED, PLAYER_DODGE_SPEED, ARENA_RADIUS,
+		STAMINA_COST, COOLDOWN
+	} from '$lib/combat/constants';
 
 	// 3D 모델 사용 여부 (true = GLB 모델, false = 프로시저럴 모델)
 	const USE_3D_MODEL = true;
 
 	// Props
 	let {
-		onPositionUpdate = (pos: THREE.Vector3) => {},
-		onRotationUpdate = (rot: number) => {},
+		onPositionUpdate = (_pos: THREE.Vector3) => {},
+		onRotationUpdate = (_rot: number) => {},
 		cameraRotation = 0
 	} = $props();
 
@@ -42,13 +47,13 @@
 	let isParrying = $state(false);
 	let attackCooldownTimer = $state(0);  // 공격 쿨다운 타이머 (밀리초)
 	let dodgeCooldown = $state(false);
-	let parryCooldown = $state(false);
+	let _parryCooldown = $state(false);  // 미사용이나 향후 확장 가능성
 	let guardCooldown = $state(false);   // 가드 쿨다운
 
-	// 쿨다운 시간 (밀리초)
-	const LIGHT_ATTACK_COOLDOWN = 500;   // 약공격 쿨다운 0.5초
-	const HEAVY_ATTACK_COOLDOWN = 1000;  // 강공격 쿨다운 1초
-	const GUARD_COOLDOWN = 300;          // 가드 쿨다운 0.3초
+	// 쿨다운 시간 (밀리초) - 상수에서 가져옴
+	const LIGHT_ATTACK_COOLDOWN = COOLDOWN.lightAttack;
+	const HEAVY_ATTACK_COOLDOWN = COOLDOWN.heavyAttack;
+	const GUARD_COOLDOWN = COOLDOWN.guard;
 
 	// 차징 시스템 (좌클릭 홀드)
 	let isCharging = $state(false);
@@ -111,15 +116,16 @@
 	let dodgeAnimStartTime = $state(0);
 	let currentDodgeDirection = $state<'forward' | 'backward' | 'left' | 'right'>('backward');
 
-	const speed = 6;
-	const dodgeSpeed = 15;
-	const ARENA_RADIUS = 9.5; // 아레나 반경 (벽 안쪽)
+	// 이동 속도 (캐릭터 비례 상수)
+	const speed = PLAYER_WALK_SPEED;
+	const dodgeSpeed = PLAYER_DODGE_SPEED;
+	// 스태미나 비용 (상수에서 가져옴)
 	const staminaCosts = {
-		light_attack: 10,
-		heavy_attack: 25,
-		dodge: 20,
-		guard: 5, // per second
-		parry: 15
+		light_attack: STAMINA_COST.lightAttack,
+		heavy_attack: STAMINA_COST.heavyAttack,
+		dodge: STAMINA_COST.dodge,
+		guard: STAMINA_COST.guard,
+		parry: STAMINA_COST.parry
 	};
 
 	// 키 입력 핸들러
@@ -212,6 +218,9 @@
 		attackProgress = 0;
 		playerState.set('attacking');
 
+		// 사운드 재생
+		playSFX(type === 'light' ? 'player_attack_light' : 'player_attack_heavy');
+
 		// 공격 쿨다운 설정
 		attackCooldownTimer = type === 'light' ? LIGHT_ATTACK_COOLDOWN : HEAVY_ATTACK_COOLDOWN;
 
@@ -241,6 +250,9 @@
 		isDodging = true;
 		dodgeCooldown = true;
 		playerState.set('dodging');
+
+		// 사운드 재생
+		playSFX('player_dodge');
 
 		playerStamina.update(s => Math.max(0, s - staminaCosts.dodge));
 
@@ -275,6 +287,9 @@
 			isGuarding = true;
 			playerState.set('guarding');
 			recordAction({ type: 'guard' });
+
+			// 사운드 재생
+			playSFX('player_guard');
 
 			// 패링 윈도우 즉시 활성화
 			parryWindowActive = true;
@@ -627,6 +642,9 @@
 				playerStamina.update(s => Math.max(0, s - staminaCosts.parry));
 				recordAction({ type: 'parry' });
 
+				// 사운드 재생
+				playSFX('player_parry');
+
 				// 패링 이펙트 및 애니메이션
 				isParrying = true;
 				parryFlashEffect = true;
@@ -648,6 +666,7 @@
 
 		// 그냥 피격 - 히트 이펙트
 		hitEffectActive = true;
+		playSFX('player_hit');
 		playerHealth.update(h => Math.max(0, h - amount));
 		return 'hit';
 	}
@@ -703,7 +722,13 @@
 </script>
 
 <RigidBody bind:rigidBody position={[0, 2, 5]} linearDamping={5} angularDamping={5} lockRotations enabledRotations={[false, false, false]}>
-	<Collider shape="capsule" args={[0.5, 0.4]} mass={1} friction={1} restitution={0} />
+	<Collider
+		shape="capsule"
+		args={[0.5, 0.4]}
+		mass={1}
+		friction={1}
+		restitution={0}
+	/>
 
 	<T.Group bind:ref={playerMesh} rotation.y={playerRotation}>
 		<!-- 캐릭터 모델 -->

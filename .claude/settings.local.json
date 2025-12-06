@@ -28,7 +28,8 @@
       "Bash(cat:*)",
       "Bash(__NEW_LINE__ echo -e \"\\n=== PlayerCombat 콜라이더 ===\")",
       "Bash(__NEW_LINE__ echo -e \"\\n=== EnemyAI 콜라이더 ===\")",
-      "Bash(__NEW_LINE__ echo -e \"\\n=== 공격 범위 ===\")"
+      "Bash(__NEW_LINE__ echo -e \"\\n=== 공격 범위 ===\")",
+      "Bash(wc:*)"
     ],
     "deny": [],
     "ask": []

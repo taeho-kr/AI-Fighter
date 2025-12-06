@@ -165,8 +165,18 @@ export function startGame() {
 export function nextRound() {
 	currentRound.update(r => r + 1);
 	bossLevel.update(l => l + 1);
-	resetGame();
+	// 체력 부분 회복 후 리셋 (50% 회복)
+	playerHealth.update(h => Math.min(100, h + 50));
+	playerStamina.set(100);
+	playerState.set('idle');
+	enemyHealth.set(100);
+	enemyState.set('idle');
 	gameState.set('playing');
+}
+
+// 플레이어 체력 회복 (승리 보상)
+export function healPlayer(amount: number) {
+	playerHealth.update(h => Math.min(100, h + amount));
 }
 
 // 파생 스토어 - 플레이어 생존 여부
