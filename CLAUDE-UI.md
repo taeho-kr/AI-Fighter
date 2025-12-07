@@ -1,26 +1,29 @@
 # UI/UX Development
 
-## Main Component
-
-**GameUI.svelte** - 모든 UI 요소 담당 (Canvas 외부에 렌더링)
+> 관련 파일: `GameUI.svelte`, `SettingsMenu.svelte`, `LoadingScreen.svelte`, `KeyboardHints.svelte`
 
 ## UI Structure
 
 ```
-GameUI.svelte
-├── HUD (게임 중 표시)
-│   ├── Player Stats (좌하단)
-│   │   ├── Health Bar
-│   │   └── Stamina Bar
+GameUI.svelte (288L)
+├── HUD (게임 중)
+│   ├── Player Stats (좌하단) - HP/SP 바
 │   ├── Boss Health (상단 중앙)
 │   ├── Round Counter (우상단)
-│   ├── Camera Mode (우하단)
-│   └── Controls Guide (좌측)
-├── Overlays (상태별 화면)
-│   ├── Main Menu
+│   └── Controls Hint (좌측)
+├── Overlays
+│   ├── Menu Screen
+│   ├── Paused Screen
 │   ├── Game Over Screen
 │   └── Victory Screen
-└── AI Stats Panel (디버그)
+└── Debug Panel (AI 통계)
+
+SettingsMenu.svelte (652L)
+├── 그래픽 설정
+├── 오디오 설정
+├── 조작 설정
+├── 업적
+└── 통계
 ```
 
 ## Store Subscriptions
@@ -33,18 +36,18 @@ GameUI.svelte
     playerStamina, playerMaxStamina,
     enemyHealth, enemyMaxHealth,
     currentRound, bossLevel,
-    cameraMode, aiLearningData
+    aiLearningData
   } from '$lib/stores/gameStore';
 </script>
 ```
 
 ## Health/Stamina Bars
 
-### HTML Structure
 ```svelte
 <div class="player-stats">
-  <div class="stat-bar health-bar">
-    <div class="stat-label">HP</div>
+  <!-- HP Bar -->
+  <div class="stat-bar">
+    <div class="bar-label">HP</div>
     <div class="bar-container">
       <div
         class="bar-fill health"
@@ -56,8 +59,9 @@ GameUI.svelte
     </div>
   </div>
 
-  <div class="stat-bar stamina-bar">
-    <div class="stat-label">SP</div>
+  <!-- SP Bar -->
+  <div class="stat-bar">
+    <div class="bar-label">SP</div>
     <div class="bar-container">
       <div
         class="bar-fill stamina"
@@ -68,14 +72,8 @@ GameUI.svelte
 </div>
 ```
 
-### CSS Styling
+### Bar Styling
 ```css
-.player-stats {
-  position: absolute;
-  bottom: 20px;
-  left: 20px;
-}
-
 .bar-container {
   width: 200px;
   height: 20px;
@@ -114,62 +112,47 @@ GameUI.svelte
 </div>
 ```
 
-```css
-.boss-health {
-  position: absolute;
-  top: 20px;
-  left: 50%;
-  transform: translateX(-50%);
-  text-align: center;
-}
-
-.boss-bar-container {
-  width: 400px;
-  height: 25px;
-}
-
-.bar-fill.boss {
-  background: linear-gradient(to right, #e94560, #ff6b6b);
-}
-```
-
 ## Overlay Screens
 
-### Menu Screen
+### State-Based Rendering
 ```svelte
 {#if $gameState === 'menu'}
   <div class="overlay menu">
     <h1>ADAPTIVE BOSS</h1>
     <p>AI가 당신의 전투 패턴을 학습합니다</p>
-    <button on:click={startGame}>START</button>
+    <button onclick={startGame}>START</button>
+    <button onclick={openSettings}>SETTINGS</button>
   </div>
 {/if}
-```
 
-### Game Over Screen
-```svelte
 {#if $gameState === 'dead'}
   <div class="overlay game-over">
     <h1>DEFEATED</h1>
     <p>Round {$currentRound}에서 패배</p>
-    <button on:click={retry}>RETRY</button>
-    <button on:click={backToMenu}>MENU</button>
+    <button onclick={retry}>RETRY</button>
+    <button onclick={backToMenu}>MENU</button>
   </div>
 {/if}
-```
 
-### Victory Screen
-```svelte
 {#if $gameState === 'victory'}
   <div class="overlay victory">
     <h1>VICTORY!</h1>
     <p>Round {$currentRound} 클리어!</p>
-    <button on:click={nextRound}>NEXT ROUND</button>
+    <button onclick={nextRound}>NEXT ROUND</button>
+  </div>
+{/if}
+
+{#if $gameState === 'paused'}
+  <div class="overlay paused">
+    <h1>PAUSED</h1>
+    <button onclick={resumeGame}>RESUME</button>
+    <button onclick={openSettings}>SETTINGS</button>
+    <button onclick={backToMenu}>QUIT</button>
   </div>
 {/if}
 ```
 
-### Overlay CSS
+### Overlay Styling
 ```css
 .overlay {
   position: absolute;
@@ -178,7 +161,7 @@ GameUI.svelte
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.8);
+  background: rgba(0, 0, 0, 0.85);
   z-index: 100;
 }
 
@@ -202,28 +185,22 @@ GameUI.svelte
 .overlay button:hover {
   background: #ff6b6b;
   transform: scale(1.05);
+  box-shadow: 0 0 20px rgba(233, 69, 96, 0.5);
 }
 ```
 
-## Controls Guide
+## Controls Guide (KeyboardHints.svelte)
 
 ```svelte
-<div class="controls-panel" class:collapsed={controlsCollapsed}>
-  <button class="toggle" on:click={() => controlsCollapsed = !controlsCollapsed}>
-    {controlsCollapsed ? '>' : '<'}
-  </button>
-
-  {#if !controlsCollapsed}
-    <div class="controls-list">
-      <div class="control"><kbd>WASD</kbd> 이동</div>
-      <div class="control"><kbd>LMB</kbd> 약공격</div>
-      <div class="control"><kbd>Q</kbd> 강공격</div>
-      <div class="control"><kbd>RMB</kbd> 가드</div>
-      <div class="control"><kbd>E</kbd> 패리</div>
-      <div class="control"><kbd>Shift</kbd> 회피</div>
-      <div class="control"><kbd>V</kbd> 카메라 전환</div>
-    </div>
-  {/if}
+<div class="controls-panel">
+  <div class="control"><kbd>WASD</kbd> 이동</div>
+  <div class="control"><kbd>LMB</kbd> 약공격</div>
+  <div class="control"><kbd>LMB 홀드</kbd> 강공격</div>
+  <div class="control"><kbd>RMB</kbd> 가드</div>
+  <div class="control"><kbd>E</kbd> 패리</div>
+  <div class="control"><kbd>Shift</kbd> 회피</div>
+  <div class="control"><kbd>V</kbd> 카메라</div>
+  <div class="control"><kbd>ESC</kbd> 일시정지</div>
 </div>
 ```
 
@@ -231,18 +208,18 @@ GameUI.svelte
 
 | 용도 | 색상 |
 |------|------|
-| 배경/오버레이 | `rgba(0, 0, 0, 0.8)` |
-| 어두운 패널 | `#1a1a2e`, `#16213e` |
+| 배경/오버레이 | `rgba(0, 0, 0, 0.85)` |
+| 패널 배경 | `#1a1a2e`, `#16213e` |
 | 메인 강조 | `#e94560` |
-| 체력 (녹색) | `#22c55e`, `#44ff44` |
-| 스태미나 (파랑) | `#3b82f6`, `#60a5fa` |
-| 보스 체력 (빨강) | `#e94560`, `#ff6b6b` |
+| 체력 (녹색) | `#22c55e` → `#44ff44` |
+| 스태미나 (파랑) | `#3b82f6` → `#60a5fa` |
+| 보스 체력 (빨강) | `#e94560` → `#ff6b6b` |
 | 경고/골드 | `#ffaa00` |
 | 텍스트 | `#ffffff`, `#aaa` |
 
 ## Text Effects
 
-### Glow Text
+### Glow
 ```css
 .glow-text {
   color: #e94560;
@@ -261,92 +238,117 @@ kbd {
   border: 1px solid #555;
   border-radius: 3px;
   font-family: monospace;
+  min-width: 24px;
+  text-align: center;
 }
 ```
 
-## Responsive Considerations
+## Pointer Events
 
 ```css
-/* 포인터 이벤트 관리 */
+/* 기본: 3D 인터랙션 허용 */
 .game-ui {
   position: absolute;
   inset: 0;
-  pointer-events: none;  /* 3D 인터랙션 허용 */
+  pointer-events: none;
 }
 
+/* 버튼만 클릭 가능 */
 .game-ui button,
 .game-ui .interactive {
-  pointer-events: auto;  /* 버튼만 클릭 가능 */
+  pointer-events: auto;
 }
 ```
 
-## Animation Patterns
+## Animations
 
-### Bar Transitions
+### Transitions
 ```css
 .bar-fill {
   transition: width 0.3s ease;
 }
-```
 
-### Button Hover
-```css
 button {
   transition: all 0.3s ease;
 }
-
-button:hover {
-  transform: scale(1.05);
-  box-shadow: 0 0 20px rgba(233, 69, 96, 0.5);
-}
 ```
 
-### Fade In/Out
+### Svelte Transitions
 ```svelte
 {#if show}
-  <div class="overlay" transition:fade={{ duration: 300 }}>
+  <div transition:fade={{ duration: 300 }}>
+    ...
+  </div>
+{/if}
+
+{#if show}
+  <div transition:fly={{ y: 20, duration: 200 }}>
     ...
   </div>
 {/if}
 ```
 
-## State-Based Visibility
+## DamageNumber.svelte
 
 ```svelte
-<!-- 게임 중에만 HUD 표시 -->
-{#if $gameState === 'playing'}
-  <div class="hud">
-    <!-- HUD 요소들 -->
-  </div>
-{/if}
+<script>
+  let { damage, position, isCritical } = $props();
+</script>
 
-<!-- 일시정지/메뉴에서 커서 표시 -->
-{#if $gameState !== 'playing'}
-  <style>
-    :global(body) { cursor: auto; }
-  </style>
-{/if}
+<div
+  class="damage-number"
+  class:critical={isCritical}
+  style="left: {position.x}px; top: {position.y}px"
+>
+  {damage}
+</div>
+
+<style>
+.damage-number {
+  position: absolute;
+  font-weight: bold;
+  color: #ff4444;
+  animation: float-up 1s ease-out forwards;
+}
+
+.critical {
+  font-size: 1.5em;
+  color: #ffaa00;
+}
+
+@keyframes float-up {
+  0% { opacity: 1; transform: translateY(0); }
+  100% { opacity: 0; transform: translateY(-50px); }
+}
+</style>
 ```
 
-## AI Stats Debug Panel
+## AI Debug Panel
 
 ```svelte
 {#if showDebugPanel}
   <div class="debug-panel">
     <h3>AI Learning Stats</h3>
-    <p>Light: {$aiLearningData.attackPatterns.light}</p>
-    <p>Heavy: {$aiLearningData.attackPatterns.heavy}</p>
-    <p>Dodge L: {$aiLearningData.dodgeDirections.left}</p>
-    <p>Dodge R: {$aiLearningData.dodgeDirections.right}</p>
-    <p>Parries: {$aiLearningData.defensiveActions.parry}</p>
+    <div>Light Attacks: {$aiLearningData.attackPatterns.light}</div>
+    <div>Heavy Attacks: {$aiLearningData.attackPatterns.heavy}</div>
+    <div>Dodge Left: {$aiLearningData.dodgeDirections.left}</div>
+    <div>Dodge Right: {$aiLearningData.dodgeDirections.right}</div>
+    <div>Parries: {$aiLearningData.defensiveActions.parry}</div>
+    <div>DQN Epsilon: {$aiStats.explorationRate.toFixed(3)}</div>
   </div>
 {/if}
 ```
 
-## Key File
+## Responsive Considerations
 
-| 파일 | 역할 |
-|------|------|
-| `GameUI.svelte` | 모든 UI/HUD 컴포넌트 |
-| `app.css` | 글로벌 리셋 스타일 |
-| `gameStore.ts` | UI에서 구독하는 상태들 |
+```css
+/* 최소 지원 해상도: 1280x720 */
+@media (max-width: 1280px) {
+  .boss-bar-container {
+    width: 300px;
+  }
+  .bar-container {
+    width: 150px;
+  }
+}
+```

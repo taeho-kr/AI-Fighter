@@ -8,7 +8,7 @@
 	import CameraController from './CameraController.svelte';
 	import DamageNumber from './DamageNumber.svelte';
 	import {
-		gameState, playerHealth, enemyHealth, playerState, recordMovement
+		gameState, playerHealth, enemyHealth, playerState
 	} from '$lib/stores/gameStore';
 	import { get } from 'svelte/store';
 	import { MELEE_ATTACK_RANGE, HEAVY_ATTACK_RANGE, LIGHT_ATTACK_DAMAGE, HEAVY_ATTACK_DAMAGE } from '$lib/combat/constants';
@@ -46,8 +46,6 @@
 	let enemyPosition = $state(new THREE.Vector3(0, 2, -5));
 	let cameraRotation = $state(0);
 
-	let lastDistance = $state(10);
-	let movementRecordTimer = $state(0);
 	let frameCounter = 0;
 
 	const tempPlayerPos = new THREE.Vector3();
@@ -165,24 +163,7 @@
 
 		if (currentGameState === 'playing') {
 			checkPlayerAttack();
-
-			movementRecordTimer += delta;
-			if (movementRecordTimer >= 0.1 && playerComponent && enemyComponent) {
-				movementRecordTimer = 0;
-
-				const pPos = playerComponent.getPosition();
-				const ePos = enemyComponent.getPosition();
-				if (pPos && ePos) {
-					tempPlayerPos.copy(pPos);
-					tempEnemyPos.copy(ePos);
-					const currentDistance = tempPlayerPos.distanceTo(tempEnemyPos);
-					const deltaDistance = currentDistance - lastDistance;
-					const movementDir = playerComponent.getMovementDirection();
-
-					recordMovement(movementDir, currentDistance, deltaDistance);
-					lastDistance = currentDistance;
-				}
-			}
+			// recordMovement는 PlayerCombat에서 직접 호출됨
 		}
 	});
 </script>
@@ -214,6 +195,7 @@
 		onPositionUpdate={handlePlayerPositionUpdate}
 		onRotationUpdate={handlePlayerRotationUpdate}
 		{cameraRotation}
+		{enemyPosition}
 	/>
 
 	<!-- 적 AI -->

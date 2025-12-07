@@ -137,9 +137,14 @@
 		}
 	}
 
-	// DQN 상태 벡터 생성
+	// 마지막 액션 시간 추적
+	let lastPlayerActionTime = $state(Date.now());
+
+	// DQN 상태 벡터 생성 (확장된 20차원)
 	function getCurrentStateVector(distance: number): number[] {
 		const data = get(aiLearningData);
+		const timeSinceLastAction = Date.now() - lastPlayerActionTime;
+
 		return stateToVector(
 			get(playerHealth),
 			get(playerMaxHealth),
@@ -155,7 +160,16 @@
 			data.defensiveActions.parry,
 			data.dodgeDirections.left,
 			data.dodgeDirections.right,
-			data.dodgeDirections.backward
+			data.dodgeDirections.backward,
+			// 새로운 파라미터들
+			timeSinceLastAction,
+			data.movementPatterns?.directions?.forward > data.movementPatterns?.directions?.backward,
+			data.movementPatterns?.directions?.backward > data.movementPatterns?.directions?.forward,
+			100, // AI 스태미나 (현재 미구현, 기본값)
+			100,
+			data.dodgeDirections.forward,
+			playerState === 'guarding',
+			playerState === 'attacking'
 		);
 	}
 
@@ -215,6 +229,7 @@
 					// 페인트: 패링 플레이어에게 효과적
 					// 짧은 대기 후 공격 (패링 윈도우 지나간 후)
 					currentState = 'predicting';
+					enemyState.set('predicting');
 					const feintDelay = isParryPlayer ? 500 : 350;  // 패링 플레이어에겐 더 긴 딜레이
 					setTimeout(() => {
 						if (attackCooldown <= 0) performAttack('light');
@@ -236,6 +251,7 @@
 
 			case 'retreat':
 				currentState = 'retreating';
+				enemyState.set('retreating');
 				break;
 
 			case 'wait':
@@ -312,6 +328,7 @@
 				else if (predictedPlayerAction === 'parry' && Math.random() < currentStats.predictionAccuracy) {
 					setTimeout(() => performAttack('light'), 300);
 					currentState = 'predicting';
+					enemyState.set('predicting');
 				}
 				else if (shouldUseHeavy) {
 					performAttack('heavy');
@@ -453,6 +470,7 @@
 	// 플레이어 행동 업데이트 (학습용)
 	export function updatePlayerAction(action: string) {
 		lastRecentAction = action;
+		lastPlayerActionTime = Date.now();
 	}
 
 	export function getPosition(): THREE.Vector3 | null {

@@ -1,47 +1,65 @@
-# 3D Graphics & Physics Development
+# 3D Graphics & Physics
 
-## Threlte Architecture
+> 관련 파일: `Scene.svelte`, `Arena.svelte`, `CameraController.svelte`, `HumanoidModel.svelte`
 
-### Canvas Setup (Game.svelte)
+## Threlte Setup
+
+### Canvas (Game.svelte)
 ```svelte
 <Canvas>
   <Scene />
 </Canvas>
 ```
 
-### World & Physics (Scene.svelte)
+### World (Scene.svelte)
 ```svelte
-<World>
-  <!-- 모든 물리 객체는 World 내부에 -->
+<World gravity={[0, -9.81, 0]}>
+  <!-- 모든 물리 객체 -->
 </World>
 ```
 
-## Core Components
+## Physics (Rapier 3D)
 
-### Scene.svelte
-- World 컨테이너 (물리)
-- 조명 시스템 설정
-- 씬 오케스트레이션
-- 공격 충돌 감지
+### RigidBody Types
+```svelte
+<!-- 동적 객체 (캐릭터) -->
+<RigidBody type="dynamic" linearDamping={5} angularDamping={5}>
 
-### Arena.svelte
-- 고정 강체 (ground, walls)
-- 장식 요소 (rings, pillars)
-- 물리 콜라이더
+<!-- 고정 객체 (환경) -->
+<RigidBody type="fixed">
+```
 
-### CameraController.svelte
-- 1인칭/3인칭 모드
-- 포인터 락 마우스 컨트롤
-- Lerp 기반 스무스 팔로우
+### Collider Shapes
+```svelte
+<!-- 캐릭터 (캡슐) -->
+<Collider shape="capsule" args={[halfHeight, radius]} />
+
+<!-- 바닥/벽 (박스) -->
+<Collider shape="cuboid" args={[halfWidth, halfHeight, halfDepth]} />
+
+<!-- 기둥 (실린더) -->
+<Collider shape="cylinder" args={[halfHeight, radius]} />
+```
+
+### Physics Properties
+```svelte
+<RigidBody
+  linearDamping={5}      // 이동 감속
+  angularDamping={5}     // 회전 감속
+  mass={1}               // 질량
+  restitution={0}        // 반발력 (탄성)
+  friction={0.5}         // 마찰력
+>
+```
 
 ## Lighting System
 
 ```svelte
-<!-- 메인 태양광 -->
+<!-- 메인 태양광 (그림자 생성) -->
 <T.DirectionalLight
   intensity={1.5}
-  castShadow
   position={[10, 20, 10]}
+  castShadow
 >
   <T.OrthographicCamera
     args={[-20, 20, 20, -20, 0.1, 50]}
@@ -49,106 +67,159 @@
   />
 </T.DirectionalLight>
 
-<!-- 필 라이트 -->
+<!-- 앰비언트 (기본 밝기) -->
 <T.AmbientLight intensity={0.3} />
 
-<!-- 포인트 라이트 (필러) -->
-<T.PointLight color="#ff4444" intensity={20} />
+<!-- 포인트 라이트 (기둥 글로우) -->
+<T.PointLight
+  color="#ff4444"
+  intensity={20}
+  distance={15}
+  decay={2}
+/>
 ```
 
-### Shadow Configuration
-- `castShadow`: 캐릭터 메시에 적용
-- `receiveShadow`: 바닥/벽에 적용
-- OrthographicCamera로 그림자 영역 정의
-
-## Physics (Rapier)
-
-### RigidBody Types
+### Shadow Setup
 ```svelte
-<!-- 동적 (움직이는 객체) -->
-<RigidBody type="dynamic" linearDamping={5}>
+<!-- 그림자 생성 -->
+<T.Mesh castShadow>
 
-<!-- 고정 (환경) -->
+<!-- 그림자 수신 -->
+<T.Mesh receiveShadow>
+```
+
+## HumanoidModel (998 lines)
+
+### Joint Structure
+```
+Root
+├── Torso (몸통)
+│   ├── Head (머리)
+│   ├── LeftShoulder → LeftUpperArm → LeftLowerArm → LeftHand
+│   ├── RightShoulder → RightUpperArm → RightLowerArm → RightHand
+│   └── Weapon (오른손에 부착)
+└── Hips (골반)
+    ├── LeftUpperLeg → LeftLowerLeg → LeftFoot
+    └── RightUpperLeg → RightLowerLeg → RightFoot
+```
+
+### Animation States
+```typescript
+type AnimationState =
+  | 'idle'
+  | 'walk'
+  | 'run'
+  | 'attack_light'
+  | 'attack_heavy'
+  | 'guard'
+  | 'dodge'
+  | 'stunned';
+```
+
+### Joint Calculation (Performance Issue)
+```typescript
+// 매 프레임 100+ 라인의 관절 계산 실행
+// TODO: 메모이제이션 필요
+const joints = $derived.by(() => {
+  // 복잡한 관절 위치/회전 계산
+  // animationState에 따른 포즈 보간
+});
+```
+
+## Arena Environment (Arena.svelte)
+
+### Floor
+```svelte
 <RigidBody type="fixed">
+  <Collider shape="cuboid" args={[25, 0.5, 25]} />
+  <T.Mesh receiveShadow position.y={-0.5}>
+    <T.BoxGeometry args={[50, 1, 50]} />
+    <T.MeshStandardMaterial color="#16213e" />
+  </T.Mesh>
+</RigidBody>
 ```
 
-### Collider Shapes
+### Decorative Rings
 ```svelte
-<!-- 캐릭터 -->
-<Collider shape="capsule" args={[0.5, 0.3]} />
-
-<!-- 바닥/벽 -->
-<Collider shape="cuboid" args={[size, height, depth]} />
-
-<!-- 필러 -->
-<Collider shape="cylinder" args={[height, radius]} />
+<T.Mesh rotation.x={-Math.PI / 2} position.y={0.01}>
+  <T.RingGeometry args={[innerRadius, outerRadius, 64]} />
+  <T.MeshStandardMaterial
+    color="#0f3460"
+    emissive="#0f3460"
+    emissiveIntensity={0.2}
+  />
+</T.Mesh>
 ```
 
-### Physics Properties
+### Pillars
 ```svelte
-<RigidBody
-  linearDamping={5}      <!-- 이동 감속 -->
-  mass={1}
-  restitution={0}        <!-- 반발력 -->
->
+<RigidBody type="fixed" position={pillarPos}>
+  <Collider shape="cylinder" args={[2, 0.5]} />
+  <T.Mesh castShadow>
+    <T.CylinderGeometry args={[0.5, 0.5, 4, 16]} />
+    <T.MeshStandardMaterial color="#1a1a2e" />
+  </T.Mesh>
+  <!-- 상단 글로우 -->
+  <T.PointLight color="#ff4444" intensity={20} position.y={2.5} />
+</RigidBody>
+```
+
+## Camera (CameraController.svelte)
+
+### Modes
+- **1인칭**: 캐릭터 머리 위치
+- **3인칭**: 캐릭터 뒤쪽 오프셋
+
+### Controls
+- 마우스 이동: 카메라 회전
+- V 키: 모드 전환
+- Pointer Lock 사용
+
+```typescript
+useTask((delta) => {
+  // 스무스 팔로우
+  cameraPos.lerp(targetPos, lerpFactor * delta);
+});
 ```
 
 ## Geometry Patterns
 
-### Character Model
+### Character
 ```svelte
-<!-- 몸체 -->
-<T.Mesh>
-  <T.CapsuleGeometry args={[0.3, 1, 8, 16]} />
-  <T.MeshStandardMaterial color="#색상" />
-</T.Mesh>
-
-<!-- 머리 -->
-<T.Mesh position={[0, 1, 0]}>
-  <T.SphereGeometry args={[0.25, 16, 16]} />
+<T.Mesh castShadow>
+  <T.CapsuleGeometry args={[radius, height, radialSegments, heightSegments]} />
+  <T.MeshStandardMaterial color={characterColor} />
 </T.Mesh>
 ```
 
 ### Weapon
 ```svelte
-<T.Group position={weaponPos} rotation={weaponRot}>
+<T.Group position={weaponPosition} rotation={weaponRotation}>
   <!-- 손잡이 -->
   <T.Mesh>
     <T.CylinderGeometry args={[0.03, 0.03, 0.3, 8]} />
+    <T.MeshStandardMaterial color="#8B4513" />
   </T.Mesh>
   <!-- 날 -->
   <T.Mesh>
     <T.BoxGeometry args={[0.05, 0.6, 0.02]} />
+    <T.MeshStandardMaterial color="#C0C0C0" metalness={0.8} />
   </T.Mesh>
 </T.Group>
 ```
 
-### Environment
-```svelte
-<!-- 스카이 스피어 -->
-<T.Mesh>
-  <T.SphereGeometry args={[100, 32, 32]} />
-  <T.MeshBasicMaterial color="#1a1a2e" side={BackSide} />
-</T.Mesh>
-
-<!-- 바닥 링 -->
-<T.Mesh rotation.x={-Math.PI / 2}>
-  <T.RingGeometry args={[innerR, outerR, 64]} />
-</T.Mesh>
-```
-
 ## Materials
 
-### MeshStandardMaterial (PBR)
+### Standard PBR
 ```svelte
 <T.MeshStandardMaterial
   color="#22c55e"
-  emissive="#색상"
-  emissiveIntensity={0.2}
+  metalness={0.1}
+  roughness={0.8}
 />
 ```
 
-### Glow Effect
+### Emissive (Glow)
 ```svelte
 <T.MeshStandardMaterial
   color="#ffaa00"
@@ -157,34 +228,46 @@
 />
 ```
 
-## Frame Updates
+## Color Palette
 
-### useTask Hook
+| 용도 | 색상 |
+|------|------|
+| 배경/스카이 | `#1a1a2e` |
+| 바닥 | `#16213e` |
+| 바닥 링 | `#0f3460` |
+| 플레이어 | `#22c55e` (녹색) |
+| 적 | `#ff4444` (빨강) |
+| 포인트라이트 | `#ff4444` |
+| 골드/경고 | `#ffaa00` |
+
+## useTask Hook
+
 ```typescript
 import { useTask } from '@threlte/core';
 
 useTask((delta) => {
-  // delta: 프레임 간 시간 (초)
-  // 매 프레임 호출
+  // delta: 이전 프레임 이후 경과 시간 (초)
+  // 60fps → delta ≈ 0.0167
   position.x += velocity * delta;
 });
 ```
 
-## Key File Locations
+## Performance Notes
 
-| 파일 | 역할 |
-|------|------|
-| `Scene.svelte` | 3D 씬 구성, 조명, World |
-| `Arena.svelte` | 환경 지오메트리, 물리 |
-| `CameraController.svelte` | 카메라 로직 |
-| `PlayerCombat.svelte` | 플레이어 3D 모델 |
-| `EnemyAI.svelte` | 적 3D 모델 |
+### 현재 이슈
+- HumanoidModel의 `joints` 계산이 매 프레임 실행
+- 100+ 라인의 복잡한 수학 연산
 
-## Color Palette
+### 최적화 제안
+```typescript
+// 이전: 매 프레임 전체 재계산
+const joints = $derived.by(() => { ... });
 
-- 배경: `#1a1a2e`
-- 바닥: `#16213e`, `#0f3460`
-- 플레이어: `#22c55e` (녹색)
-- 적: `#ff4444` (빨강)
-- 포인트라이트: `#ff4444` (빨강 글로우)
-- 골드/경고: `#ffaa00`
+// 개선: animationState 변경 시에만 계산
+let cachedJoints = $state({});
+$effect(() => {
+  if (animationStateChanged) {
+    cachedJoints = calculateJoints(animationState);
+  }
+});
+```

@@ -1,30 +1,88 @@
-# AI Learning System Development
+# AI Learning System
 
-## Overview
+> 관련 파일: `ai/DQN.ts`, `EnemyAI.svelte`, `stores/gameStore.ts`
 
-보스 AI가 플레이어의 전투 패턴을 실시간으로 학습하고 전략을 조정하는 시스템.
+## Architecture Overview
 
-## Core Components
-
-- **gameStore.ts** - 학습 데이터 저장
-- **EnemyAI.svelte** - 학습 기반 행동
-
-## Data Structures
-
-### Action Record
-```typescript
-interface ActionRecord {
-  action: string;      // 'attack_light', 'dodge_left', 'parry', etc.
-  timestamp: number;   // Date.now()
-}
+```
+┌─────────────────┐     recordAction()     ┌──────────────────┐
+│ PlayerCombat    │ ──────────────────────→│ gameStore        │
+│ (액션 발생)      │                        │ - actionHistory  │
+└─────────────────┘                        │ - aiLearningData │
+                                           └────────┬─────────┘
+                                                    │ subscribe
+                                                    ▼
+┌─────────────────┐     selectAction()     ┌──────────────────┐
+│ DQN Agent       │ ←────────────────────→│ EnemyAI          │
+│ (TensorFlow.js) │                        │ (행동 결정)       │
+└─────────────────┘                        └──────────────────┘
 ```
 
-### Learning Data
+## DQN (Deep Q-Network) - ai/DQN.ts
+
+### Network Architecture
+```
+Input Layer:  12 neurons (state vector)
+Hidden 1:     64 neurons (ReLU)
+Hidden 2:     64 neurons (ReLU)
+Hidden 3:     32 neurons (ReLU)
+Output Layer: 9 neurons (Q-values per action)
+```
+
+### State Vector (12 dimensions)
+| Index | 값 | 범위 |
+|-------|-----|------|
+| 0 | playerHealth / maxHealth | 0~1 |
+| 1 | enemyHealth / maxHealth | 0~1 |
+| 2 | playerStamina / maxStamina | 0~1 |
+| 3 | distance / maxDistance | 0~1 |
+| 4 | isPlayerAttacking | 0/1 |
+| 5 | isPlayerGuarding | 0/1 |
+| 6 | isPlayerDodging | 0/1 |
+| 7-11 | 패턴 빈도 (정규화) | 0~1 |
+
+### Actions (9 types)
+```typescript
+type AIAction =
+  | 'light_attack'
+  | 'heavy_attack'
+  | 'feint_attack'
+  | 'guard_break'
+  | 'chase'
+  | 'retreat'
+  | 'wait'
+  | 'predict_dodge_left'
+  | 'predict_dodge_right';
+```
+
+### Hyperparameters
+```typescript
+LEARNING_RATE = 0.001
+GAMMA = 0.95          // 할인율
+EPSILON_START = 0.5   // 초기 탐험율
+EPSILON_MIN = 0.05    // 최소 탐험율
+EPSILON_DECAY = 0.995 // 감쇠율
+MEMORY_SIZE = 2000    // Experience Replay 버퍼
+BATCH_SIZE = 32
+TARGET_UPDATE = 100   // 타겟 네트워크 업데이트 주기
+```
+
+### Reward Signal
+| 이벤트 | 보상 |
+|--------|------|
+| hitPlayer | +1.0 |
+| gotHit | -0.8 |
+| gotParried | -1.5 |
+| successfulPredict | +2.0 |
+
+## Statistical Learning - gameStore.ts
+
+### Learning Data Structure
 ```typescript
 interface AILearningData {
   attackPatterns: {
-    light: number;     // light attack 빈도
-    heavy: number;     // heavy attack 빈도
+    light: number;   // 약공격 횟수
+    heavy: number;   // 강공격 횟수
   };
   dodgeDirections: {
     forward: number;
@@ -33,287 +91,127 @@ interface AILearningData {
     right: number;
   };
   defensiveActions: {
-    guard: number;     // 가드 빈도
-    parry: number;     // 패리 빈도
+    guard: number;   // 가드 횟수
+    parry: number;   // 패리 횟수
   };
-  attackTimings: number[];        // 공격 간 시간 간격
-  dodgedAttackTypes: string[];    // 회피한 공격 유형
+  attackTimings: number[];      // 공격 간 시간 간격
+  recentActions: PlayerAction[]; // 최근 100개 액션
 }
 ```
 
-## Store Implementation
-
-### gameStore.ts
+### Action Recording
 ```typescript
-import { writable, derived } from 'svelte/store';
-
-// 최근 100개 액션 기록
-export const playerActionHistory = writable<ActionRecord[]>([]);
-
-// 분석된 학습 데이터
-export const aiLearningData = writable<AILearningData>({
-  attackPatterns: { light: 0, heavy: 0 },
-  dodgeDirections: { forward: 0, backward: 0, left: 0, right: 0 },
-  defensiveActions: { guard: 0, parry: 0 },
-  attackTimings: [],
-  dodgedAttackTypes: []
-});
-```
-
-### Recording Actions
-```typescript
-export function recordAction(action: string) {
-  const record: ActionRecord = {
-    action,
-    timestamp: Date.now()
-  };
-
+export function recordAction(action: PlayerAction) {
   playerActionHistory.update(history => {
-    const updated = [...history, record];
-    // 최대 100개 유지
-    return updated.slice(-100);
+    const updated = [...history, action];
+    return updated.slice(-100);  // 최근 100개 유지
   });
 
-  // 학습 데이터 업데이트
-  updateLearningData(action);
-}
-```
-
-### Updating Learning Data
-```typescript
-function updateLearningData(action: string) {
+  // 통계 업데이트
   aiLearningData.update(data => {
-    // 공격 패턴
-    if (action === 'attack_light') data.attackPatterns.light++;
-    if (action === 'attack_heavy') data.attackPatterns.heavy++;
-
-    // 회피 방향
-    if (action.startsWith('dodge_')) {
-      const direction = action.replace('dodge_', '');
-      data.dodgeDirections[direction]++;
+    if (action.type === 'light_attack') data.attackPatterns.light++;
+    if (action.type === 'heavy_attack') data.attackPatterns.heavy++;
+    if (action.type.startsWith('dodge_')) {
+      const dir = action.type.replace('dodge_', '');
+      data.dodgeDirections[dir]++;
     }
-
-    // 방어 행동
-    if (action === 'guard') data.defensiveActions.guard++;
-    if (action === 'parry') data.defensiveActions.parry++;
-
-    // 공격 타이밍 계산
     // ...
-
     return { ...data };
   });
 }
 ```
 
-## AI Behavior (EnemyAI.svelte)
+## EnemyAI Behavior (EnemyAI.svelte)
 
 ### Pattern Analysis
 ```typescript
-let analyzeTimer = 0;
-const analyzeInterval = 0.3; // 300ms마다 분석
+function analyzeLearningData() {
+  const data = get(aiLearningData);
 
-useTask((delta) => {
-  analyzeTimer += delta;
+  // 선호 회피 방향 예측
+  const dodges = data.dodgeDirections;
+  const maxDir = Object.entries(dodges)
+    .sort((a, b) => b[1] - a[1])[0][0];
+  predictedDodgeDirection = maxDir;
 
-  if (analyzeTimer >= analyzeInterval) {
-    analyzeTimer = 0;
-    analyzePlayerPatterns();
-  }
-});
+  // 방어 성향 분석
+  const defenseRatio = data.defensiveActions.parry /
+    (data.defensiveActions.guard + 1);
+  isParryHeavy = defenseRatio > 0.5;
+}
 ```
 
-### Dodge Direction Prediction
+### Action Selection
 ```typescript
-function predictDodgeDirection(): string {
-  const dodges = $aiLearningData.dodgeDirections;
-  const total = dodges.forward + dodges.backward + dodges.left + dodges.right;
+useTask((delta) => {
+  if (state === 'idle' && distanceToPlayer < detectionRange) {
+    state = 'chasing';
+  }
 
-  if (total < 5) return 'random'; // 데이터 부족
-
-  // 가장 빈번한 방향 찾기
-  let maxDir = 'forward';
-  let maxCount = dodges.forward;
-
-  for (const [dir, count] of Object.entries(dodges)) {
-    if (count > maxCount) {
-      maxCount = count;
-      maxDir = dir;
+  if (state === 'chasing' && distanceToPlayer < attackRange) {
+    // DQN 또는 통계 기반 결정
+    if (aiLearningEnabled && shouldUseDQN()) {
+      const action = dqnAgent.selectAction(currentState);
+      executeAction(action);
+    } else {
+      // 통계 기반 결정
+      const strategy = chooseStrategy();
+      executeAction(strategy);
     }
   }
-
-  return maxDir;
-}
-```
-
-### Attack Type Prediction
-```typescript
-function predictNextAttack(): 'light' | 'heavy' {
-  const attacks = $aiLearningData.attackPatterns;
-  const total = attacks.light + attacks.heavy;
-
-  if (total < 3) return 'light'; // 기본값
-
-  // 더 자주 쓰는 공격 유형 반환
-  return attacks.heavy > attacks.light ? 'heavy' : 'light';
-}
-```
-
-### Counter Strategy
-```typescript
-function chooseCounterStrategy() {
-  const predicted = predictNextAttack();
-  const dodgeDir = predictDodgeDirection();
-
-  if (predicted === 'heavy') {
-    // 헤비 공격 예측 시 빠른 선공
-    return 'preemptive_attack';
-  }
-
-  if ($aiLearningData.defensiveActions.parry > 5) {
-    // 패리 자주 사용 시 페이크 공격
-    return 'feint_attack';
-  }
-
-  // 예측된 회피 방향으로 공격
-  return `attack_towards_${dodgeDir}`;
-}
-```
-
-## Boss Level Scaling
-
-### Stats per Level
-```typescript
-const levelScaling = {
-  speed: 0.5,           // +0.5 per level
-  damage: {
-    base: 5,
-    predicted: 10
-  },
-  predictionAccuracy: 0.15  // +15% per level
-};
-```
-
-### Prediction Accuracy
-```typescript
-function shouldUsePrediction(): boolean {
-  const baseAccuracy = 0.3;
-  const levelBonus = bossLevel * 0.15;
-  const totalAccuracy = Math.min(0.9, baseAccuracy + levelBonus);
-
-  return Math.random() < totalAccuracy;
-}
-```
-
-## AI State Machine
-
-### States
-```typescript
-type EnemyState = 'idle' | 'chasing' | 'attacking' | 'stunned' | 'predicting' | 'retreating';
-```
-
-### State Logic
-```typescript
-useTask((delta) => {
-  switch (state) {
-    case 'idle':
-      if (playerDistance < detectionRange) {
-        state = 'chasing';
-      }
-      break;
-
-    case 'chasing':
-      moveTowardsPlayer(delta);
-      if (playerDistance < attackRange) {
-        if (shouldUsePrediction()) {
-          state = 'predicting';
-        } else {
-          state = 'attacking';
-        }
-      }
-      break;
-
-    case 'predicting':
-      // 예측 기반 공격 준비
-      const predictedDir = predictDodgeDirection();
-      performPredictedAttack(predictedDir);
-      state = 'attacking';
-      break;
-
-    case 'attacking':
-      // 공격 애니메이션 진행
-      if (attackComplete) {
-        state = 'retreating';
-      }
-      break;
-
-    case 'retreating':
-      moveAwayFromPlayer(delta);
-      if (retreatComplete || cooldownOver) {
-        state = 'idle';
-      }
-      break;
-
-    case 'stunned':
-      // 스턴 타이머에 의해 자동 해제
-      break;
-  }
 });
 ```
 
-## Learning Reset
-
-### Per Round
+### Boss Level Scaling
 ```typescript
-// 라운드 간 학습 데이터 유지
-// 보스가 플레이어를 "기억"함
-```
+const predictionAccuracy = Math.min(0.9, 0.3 + bossLevel * 0.15);
 
-### Full Reset
-```typescript
-function resetAILearning() {
-  aiLearningData.set({
-    attackPatterns: { light: 0, heavy: 0 },
-    dodgeDirections: { forward: 0, backward: 0, left: 0, right: 0 },
-    defensiveActions: { guard: 0, parry: 0 },
-    attackTimings: [],
-    dodgedAttackTypes: []
-  });
-  playerActionHistory.set([]);
+function shouldUsePrediction(): boolean {
+  return Math.random() < predictionAccuracy;
 }
 ```
 
-## Debug/Stats Display
+## AI Stats Store
 
-### GameUI.svelte에서 표시
-```svelte
-{#if showAIStats}
-  <div class="ai-stats">
-    <p>Light attacks: {$aiLearningData.attackPatterns.light}</p>
-    <p>Heavy attacks: {$aiLearningData.attackPatterns.heavy}</p>
-    <p>Favorite dodge: {getMostFrequentDodge()}</p>
-    <p>Parry count: {$aiLearningData.defensiveActions.parry}</p>
-  </div>
-{/if}
+```typescript
+export const aiStats = writable({
+  totalEpisodes: 0,
+  explorationRate: 0.5,
+  memorySize: 0,
+  avgReward: 0,
+  winRate: 0
+});
 ```
+
+## Known Issues
+
+### Critical
+- DQN과 통계학습이 분리되어 있음 - 통합 필요
+- 상태 벡터가 12차원으로 부족 (시간 정보, 시퀀스 없음)
+
+### High Priority
+- 학습 데이터 세션 간 미유지 (localStorage 저장 필요)
+- `recordMovement()` 함수가 호출되지 않음
+
+### Medium Priority
+- 보상 신호 부족 (포지셔닝, 회피 성공 등)
+- 예측 정확도 검증/피드백 루프 없음
 
 ## Extending the AI
 
-### Adding New Patterns
-1. `ActionRecord` 타입에 새 액션 추가
-2. `recordAction()` 호출 지점 추가
-3. `AILearningData`에 새 분석 필드 추가
-4. `EnemyAI.svelte`에서 새 패턴 활용
+### 새로운 패턴 추가
+1. `PlayerAction` 타입에 새 액션 추가
+2. `recordAction()` 호출 지점 추가 (PlayerCombat.svelte)
+3. `AILearningData`에 분석 필드 추가
+4. `EnemyAI.svelte`에서 활용 로직 작성
 
-### Improving Predictions
-- 시퀀스 기반 예측 (마르코프 체인)
-- 시간 기반 패턴 (특정 체력에서의 행동)
-- 반응 시간 학습
-
-## Key Files
-
-| 파일 | 역할 |
-|------|------|
-| `gameStore.ts` | 학습 데이터 스토어, recordAction |
-| `EnemyAI.svelte` | 패턴 분석, 예측 로직 |
-| `PlayerCombat.svelte` | recordAction 호출 지점 |
-| `GameUI.svelte` | AI 통계 디스플레이 |
+### 상태 벡터 확장 제안
+```typescript
+// 추가 권장 차원
+- timeSinceLastPlayerAction  // 반응 시간
+- playerFacingDirection      // 플레이어 방향
+- enemyFacingDirection       // 적 방향
+- recentActionSequence[3]    // 최근 3개 액션 시퀀스
+- healthDelta                // 체력 변화량
+- staminaDelta               // 스태미나 변화량
+```

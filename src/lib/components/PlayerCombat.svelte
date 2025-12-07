@@ -5,7 +5,7 @@
 	import * as THREE from 'three';
 	import {
 		playerHealth, playerStamina, playerState,
-		cameraMode, recordAction, gameState
+		cameraMode, recordAction, recordMovement, gameState
 	} from '$lib/stores/gameStore';
 	import { get } from 'svelte/store';
 	import { onMount } from 'svelte';
@@ -24,7 +24,8 @@
 	let {
 		onPositionUpdate = (_pos: THREE.Vector3) => {},
 		onRotationUpdate = (_rot: number) => {},
-		cameraRotation = 0
+		cameraRotation = 0,
+		enemyPosition = new THREE.Vector3(0, 0, -5) // 적 위치 (recordMovement용)
 	} = $props();
 
 	let rigidBody: RapierRigidBody;
@@ -47,7 +48,6 @@
 	let isParrying = $state(false);
 	let attackCooldownTimer = $state(0);  // 공격 쿨다운 타이머 (밀리초)
 	let dodgeCooldown = $state(false);
-	let _parryCooldown = $state(false);  // 미사용이나 향후 확장 가능성
 	let guardCooldown = $state(false);   // 가드 쿨다운
 
 	// 쿨다운 시간 (밀리초) - 상수에서 가져옴
@@ -335,6 +335,11 @@
 	let lastStaminaRegen = Date.now();
 	let lastFrameTime = Date.now();
 
+	// 움직임 기록용 (recordMovement 연동)
+	let lastDistanceToEnemy = $state(10);
+	let movementRecordTimer = $state(0);
+	const MOVEMENT_RECORD_INTERVAL = 0.2; // 200ms마다 기록
+
 	useTask((delta) => {
 		if (!rigidBody) return;
 
@@ -453,8 +458,23 @@
 
 		// 위치 업데이트 전달 (카메라용)
 		const pos = rigidBody.translation();
-		onPositionUpdate(new THREE.Vector3(pos.x, pos.y, pos.z));
+		const playerPos = new THREE.Vector3(pos.x, pos.y, pos.z);
+		onPositionUpdate(playerPos);
 		onRotationUpdate(playerRotation);
+
+		// AI 학습을 위한 움직임 기록 (200ms마다)
+		movementRecordTimer += delta;
+		if (movementRecordTimer >= MOVEMENT_RECORD_INTERVAL) {
+			movementRecordTimer = 0;
+			const distanceToEnemy = playerPos.distanceTo(enemyPosition);
+			const deltaDistance = distanceToEnemy - lastDistanceToEnemy;
+			recordMovement(
+				{ forward: keys.forward, backward: keys.backward, left: keys.left, right: keys.right },
+				distanceToEnemy,
+				deltaDistance
+			);
+			lastDistanceToEnemy = distanceToEnemy;
+		}
 
 		// === 애니메이션 상태 설정 ===
 		const lerpSpeed = 0.15;

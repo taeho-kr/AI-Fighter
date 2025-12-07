@@ -19,10 +19,10 @@ export const playerStamina = writable(100);
 export const playerMaxStamina = writable(100);
 export const playerState = writable<'idle' | 'attacking' | 'guarding' | 'dodging' | 'stunned' | 'parrying'>('idle');
 
-// 적 상태
+// 적 상태 (predicting: 예측 공격 준비, retreating: 후퇴)
 export const enemyHealth = writable(100);
 export const enemyMaxHealth = writable(100);
-export const enemyState = writable<'idle' | 'attacking' | 'stunned' | 'chasing'>('idle');
+export const enemyState = writable<'idle' | 'attacking' | 'stunned' | 'chasing' | 'predicting' | 'retreating'>('idle');
 
 // 게임 상태
 export const gameState = writable<GameState>('menu');
@@ -153,6 +153,52 @@ export function resetGame() {
 	playerState.set('idle');
 	enemyHealth.set(100);
 	enemyState.set('idle');
+}
+
+// 학습 데이터 localStorage 저장
+export function saveAILearningData() {
+	try {
+		// aiLearningData의 현재 값을 가져와서 저장
+		const unsubscribe = aiLearningData.subscribe(value => {
+			localStorage.setItem('ai-fighter-learning-data', JSON.stringify({
+				...value,
+				timestamp: Date.now()
+			}));
+		});
+		unsubscribe(); // 즉시 구독 해제
+	} catch (error) {
+		console.error('Failed to save AI learning data:', error);
+	}
+}
+
+// 학습 데이터 localStorage에서 로드
+export function loadAILearningData(): boolean {
+	try {
+		const saved = localStorage.getItem('ai-fighter-learning-data');
+		if (saved) {
+			const data = JSON.parse(saved);
+			// timestamp 필드 제거 후 로드
+			const { timestamp, ...learningData } = data;
+			aiLearningData.set({
+				attackPatterns: learningData.attackPatterns || { light_attack: 0, heavy_attack: 0 },
+				dodgeDirections: learningData.dodgeDirections || { forward: 0, backward: 0, left: 0, right: 0 },
+				defensiveActions: learningData.defensiveActions || { guard: 0, parry: 0 },
+				attackTimings: learningData.attackTimings || [],
+				dodgedAttacks: learningData.dodgedAttacks || { light: 0, heavy: 0 },
+				movementPatterns: learningData.movementPatterns || {
+					directions: { forward: 0, backward: 0, left: 0, right: 0, idle: 0 },
+					preferredDistance: { close: 0, mid: 0, far: 0 },
+					approachTendency: 0,
+					strafeTendency: 0
+				}
+			});
+			console.log('AI learning data loaded from localStorage');
+			return true;
+		}
+	} catch (error) {
+		console.error('Failed to load AI learning data:', error);
+	}
+	return false;
 }
 
 // 게임 시작 함수

@@ -29,8 +29,8 @@ export const ALL_ACTIONS: AIAction[] = [
 	'predict_dodge_right'
 ];
 
-// 상태 벡터 크기 (연속적인 값들)
-export const STATE_SIZE = 12;
+// 상태 벡터 크기 (확장됨: 12 → 20 차원)
+export const STATE_SIZE = 20;
 // 행동 수
 export const ACTION_SIZE = ALL_ACTIONS.length;
 
@@ -90,7 +90,7 @@ interface Experience {
 }
 
 /**
- * 게임 상태를 신경망 입력 벡터로 변환
+ * 게임 상태를 신경망 입력 벡터로 변환 (확장된 20차원)
  */
 export function stateToVector(
 	playerHealth: number,
@@ -107,26 +107,54 @@ export function stateToVector(
 	parryCount: number,
 	dodgeLeftCount: number,
 	dodgeRightCount: number,
-	dodgeBackCount: number
+	dodgeBackCount: number,
+	// 새로운 파라미터들
+	timeSinceLastAction: number = 0,
+	playerMovingForward: boolean = false,
+	playerMovingBackward: boolean = false,
+	_aiStamina: number = 100, // 향후 AI 스태미나 시스템 구현용
+	_aiMaxStamina: number = 100,
+	dodgeForwardCount: number = 0,
+	isPlayerGuarding: boolean = false,
+	isPlayerAttacking: boolean = false
 ): number[] {
 	// 모든 값을 0-1 범위로 정규화
 	const totalAttacks = lightAttackCount + heavyAttackCount + 1;
 	const totalDefense = guardCount + parryCount + 1;
-	const totalDodges = dodgeLeftCount + dodgeRightCount + dodgeBackCount + 1;
+	const totalDodges = dodgeLeftCount + dodgeRightCount + dodgeBackCount + dodgeForwardCount + 1;
 
 	return [
+		// 기본 상태 (0-3)
 		playerHealth / playerMaxHealth,                    // 0: 플레이어 체력 비율
 		playerStamina / playerMaxStamina,                  // 1: 플레이어 스태미나 비율
 		aiHealth / aiMaxHealth,                            // 2: AI 체력 비율
 		Math.min(distance / 15, 1),                        // 3: 거리 (정규화)
+
+		// 플레이어 현재 상태 (4-7)
 		playerRecentAction === 'attack' ? 1 : 0,           // 4: 최근 공격 여부
 		playerRecentAction === 'guard' ? 1 : 0,            // 5: 최근 가드 여부
 		playerRecentAction === 'dodge' ? 1 : 0,            // 6: 최근 회피 여부
-		lightAttackCount / totalAttacks,                   // 7: 약공격 비율
-		heavyAttackCount / totalAttacks,                   // 8: 강공격 비율
-		parryCount / totalDefense,                         // 9: 패링 비율
-		(dodgeLeftCount + dodgeRightCount) / totalDodges,  // 10: 측면 회피 비율
-		dodgeBackCount / totalDodges                       // 11: 후방 회피 비율
+		Math.min(timeSinceLastAction / 3000, 1),           // 7: 마지막 액션 후 시간 (최대 3초)
+
+		// 공격 패턴 (8-9)
+		lightAttackCount / totalAttacks,                   // 8: 약공격 비율
+		heavyAttackCount / totalAttacks,                   // 9: 강공격 비율
+
+		// 방어 패턴 (10-11)
+		guardCount / totalDefense,                         // 10: 가드 비율
+		parryCount / totalDefense,                         // 11: 패링 비율
+
+		// 회피 패턴 (12-15)
+		dodgeLeftCount / totalDodges,                      // 12: 좌측 회피 비율
+		dodgeRightCount / totalDodges,                     // 13: 우측 회피 비율
+		dodgeBackCount / totalDodges,                      // 14: 후방 회피 비율
+		dodgeForwardCount / totalDodges,                   // 15: 전방 회피 비율
+
+		// 이동 및 실시간 상태 (16-19)
+		playerMovingForward ? 1 : 0,                       // 16: 플레이어 전방 이동 중
+		playerMovingBackward ? 1 : 0,                      // 17: 플레이어 후방 이동 중
+		isPlayerGuarding ? 1 : 0,                          // 18: 플레이어 현재 가드 중
+		isPlayerAttacking ? 1 : 0                          // 19: 플레이어 현재 공격 중
 	];
 }
 

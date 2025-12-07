@@ -29,7 +29,8 @@
       "Bash(__NEW_LINE__ echo -e \"\\n=== PlayerCombat 콜라이더 ===\")",
       "Bash(__NEW_LINE__ echo -e \"\\n=== EnemyAI 콜라이더 ===\")",
       "Bash(__NEW_LINE__ echo -e \"\\n=== 공격 범위 ===\")",
-      "Bash(wc:*)"
+      "Bash(wc:*)",
+      "Bash(del \"C:\\Users\\tae_h\\OneDrive\\바탕 화면\\dev-personal\\AI-Fighter\\src\\lib\\ai\\QLearning.ts\")"
     ],
     "deny": [],
     "ask": []
